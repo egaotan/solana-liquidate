@@ -19,6 +19,7 @@ type Backend struct {
 	rpcClient   *rpc.Client
 	wsClient    *ws.Client
 	accountSubs map[solana.PublicKey]AccountSubscription
+	programSubs map[solana.PublicKey]ProgramSubscription
 	slotSubs    *ws.SlotSubscription
 	sendTx      int
 	txClients   []*rpc.Client
@@ -45,6 +46,7 @@ func NewBackend(ctx context.Context, rpcEndpoint string, wsEndpoint string, send
 		rpcClient:   rpcClient,
 		wsClient:    wsClients,
 		accountSubs: make(map[solana.PublicKey]AccountSubscription, 0),
+		programSubs: make(map[solana.PublicKey]ProgramSubscription, 0),
 		sendTx:      sendTx,
 		tpuProxy:    tpu.NewProxy(ctx, tpuEndpoint),
 		clientBH:    rpc.New(bhEndpoint),

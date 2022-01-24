@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"github.com/gagliardetto/solana-go"
+	"math/big"
 )
 
 var (
@@ -15,15 +16,35 @@ var (
 	ObligationLayoutSize           = ObligationFixLayoutSize + ObligationCollateralLayoutSize + 9*ObligationLiquidityLayoutSize
 )
 
+var (
+	Pad = new(big.Int).SetInt64(1000000000000000000)
+)
+
+type DecimalLayout struct {
+	Data [16]byte
+}
+
+func ReverseBytes(src []byte, dst []byte) {
+	for i := 0;i < len(src); i ++ {
+		dst[len(src) - 1 - i] = src[i]
+	}
+}
+
+func (d *DecimalLayout) BigInt() *big.Int {
+	dst := make([]byte, 16)
+	ReverseBytes(d.Data[:], dst)
+	return new(big.Int).SetBytes(dst)
+}
+
 type LendingMarketLayout struct {
-	Version         uint8
-	BumpSeed        uint8
-	Owner           solana.PublicKey
-	QuoteCurrency   solana.PublicKey
-	TokenProgramId  solana.PublicKey
-	OracleProgramId solana.PublicKey
+	Version           uint8
+	BumpSeed          uint8
+	Owner             solana.PublicKey
+	QuoteCurrency     solana.PublicKey
+	TokenProgramId    solana.PublicKey
+	OracleProgramId   solana.PublicKey
 	SwitchBoardOracle solana.PublicKey
-	_ [128]byte
+	_                 [128]byte
 }
 
 type KeyedLendingMarket struct {
@@ -42,11 +63,11 @@ type ReserveLiquidityLayout struct {
 	MintDecimals             uint8
 	Supply                   solana.PublicKey
 	Oracle                   solana.PublicKey
-	SwitchBoardOracle solana.PublicKey
+	SwitchBoardOracle        solana.PublicKey
 	AvailableAmount          uint64
-	BorrowedAmountWads           [2]uint64
-	CumulativeBorrowRateWads [2]uint64
-	MarketPrice              [2]uint64
+	BorrowedAmountWads       DecimalLayout
+	CumulativeBorrowRateWads DecimalLayout
+	MarketPrice              DecimalLayout
 }
 
 type ReserveCollateralLayout struct {
@@ -70,9 +91,9 @@ type ReserveConfigLayout struct {
 	OptimalBorrowRate      uint8
 	MaxBorrowRate          uint8
 	ReserveFees            ReserveFeesLayout
-	DepositLimit uint64
-	BorrowLimit uint64
-	FeeReceiver solana.PublicKey
+	DepositLimit           uint64
+	BorrowLimit            uint64
+	FeeReceiver            solana.PublicKey
 }
 
 type ReserveLayout struct {
@@ -94,16 +115,16 @@ type KeyedReserve struct {
 type ObligationCollateralLayout struct {
 	DepositReserve  solana.PublicKey
 	DepositedAmount uint64
-	MarketValue     [2]uint64
-	_ [32]byte
+	MarketValue     DecimalLayout
+	_               [32]byte
 }
 
 type ObligationLiquidityLayout struct {
 	BorrowReserve            solana.PublicKey
-	CumulativeBorrowRateWads [2]uint64
-	BorrowedAmountWads       [2]uint64
-	MarketValue              [2]uint64
-	_ [32]byte
+	CumulativeBorrowRateWads DecimalLayout
+	BorrowedAmountWads       DecimalLayout
+	MarketValue              DecimalLayout
+	_                        [32]byte
 }
 
 type ObligationFixLayout struct {
@@ -111,10 +132,11 @@ type ObligationFixLayout struct {
 	LastUpdate           LastUpdateLayout
 	LendingMarket        solana.PublicKey
 	Owner                solana.PublicKey
-	DepositedValue       [2]uint64
-	BorrowedValue        [2]uint64
-	AllowedBorrowValue   [2]uint64
-	UnhealthyBorrowValue [2]uint64
+	DepositedValue       DecimalLayout
+	BorrowedValue        DecimalLayout
+	AllowedBorrowValue   DecimalLayout
+	UnhealthyBorrowValue DecimalLayout
+	_                    [64]byte
 	DepositsLen          uint8
 	BorrowsLen           uint8
 }

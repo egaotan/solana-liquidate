@@ -1,7 +1,9 @@
 package tokenlending
 
 import (
+	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"github.com/gagliardetto/solana-go"
@@ -12,21 +14,23 @@ import (
 )
 
 type Program struct {
-	ctx context.Context
-	logger *log.Logger
-	backend *backend.Backend
-	id solana.PublicKey
-	obligations map[solana.PublicKey]*KeyedObligation
-	updateAccountChan  chan *backend.Account
+	ctx               context.Context
+	logger            *log.Logger
+	backend           *backend.Backend
+	id                solana.PublicKey
+	obligations       map[solana.PublicKey]*KeyedObligation
+	reserves          map[solana.PublicKey]*KeyedReserve
+	updateAccountChan chan *backend.Account
 }
 
 func NewProgram(id solana.PublicKey, ctx context.Context, be *backend.Backend) *Program {
 	p := &Program{
-		ctx: ctx,
-		logger: log.Default(),
-		backend: be,
-		id: id,
-		obligations: make(map[solana.PublicKey]*KeyedObligation),
+		ctx:               ctx,
+		logger:            log.Default(),
+		backend:           be,
+		id:                id,
+		obligations:       make(map[solana.PublicKey]*KeyedObligation),
+		reserves:          make(map[solana.PublicKey]*KeyedReserve),
 		updateAccountChan: make(chan *backend.Account, 1024),
 	}
 	return p
@@ -41,13 +45,20 @@ func (p *Program) Id() solana.PublicKey {
 }
 
 func (p *Program) save2Cache() {
-	{
-		infoJson, _ := json.MarshalIndent(p.obligations, "", "    ")
-		name := fmt.Sprintf("%s%s_%s.json", utils.CachePath, p.Name(), p.Id())
-		err := os.WriteFile(name, infoJson, 0644)
-		if err != nil {
-			panic(err)
-		}
+	type ProgramOutput struct {
+		Reserves    map[solana.PublicKey]*KeyedReserve
+		Obligations map[solana.PublicKey]*KeyedObligation
+	}
+	output := ProgramOutput{
+		Reserves:    p.reserves,
+		Obligations: p.obligations,
+	}
+
+	infoJson, _ := json.MarshalIndent(output, "", "    ")
+	name := fmt.Sprintf("%s%s_%s.json", utils.CachePath, p.Name(), p.Id())
+	err := os.WriteFile(name, infoJson, 0644)
+	if err != nil {
+		panic(err)
 	}
 }
 
@@ -94,6 +105,22 @@ func (p *Program) upsertObligation(pubkey solana.PublicKey, height uint64, oblig
 	return keyedObligation
 }
 
+func (p *Program) upsertReserve(pubkey solana.PublicKey, height uint64, reserve ReserveLayout) *KeyedReserve {
+	keyedReserve, ok := p.reserves[pubkey]
+	if !ok {
+		keyedReserve = &KeyedReserve{
+			Key:           pubkey,
+			Height:        height,
+			ReserveLayout: reserve,
+		}
+		p.reserves[pubkey] = keyedReserve
+	} else {
+		keyedReserve.Height = height
+		keyedReserve.ReserveLayout = reserve
+	}
+	return keyedReserve
+}
+
 func (p *Program) accounts() ([]*backend.Account, error) {
 	//return p.backend.ProgramAccounts(p.id, []uint64{uint64(ObligationLayoutSize)})
 	return p.backend.ProgramAccounts(p.id, []uint64{})
@@ -111,6 +138,14 @@ func (p *Program) buildAccount(account *backend.Account) error {
 			return err
 		}
 		p.upsertObligation(account.PubKey, account.Height, obligation)
+	} else if len(data) == ReserveLayoutSize {
+		reserve := ReserveLayout{}
+		buf := bytes.NewReader(data)
+		err := binary.Read(buf, binary.LittleEndian, &reserve)
+		if err != nil {
+			return err
+		}
+		p.upsertReserve(account.PubKey, account.Height, reserve)
 	} else {
 		return fmt.Errorf("unused account, data length: %d", len(data))
 	}
@@ -127,25 +162,8 @@ func (p *Program) buildAccounts(accounts []*backend.Account) error {
 	return nil
 }
 
-
-
 func (p *Program) subscribeUpdate() {
-	checks := make(map[solana.PublicKey]bool)
-	subscribes := make([]solana.PublicKey, 0)
-	for _, obligation := range p.obligations {
-		if _, ok := checks[obligation.Key]; !ok {
-			subscribes = append(subscribes, obligation.Key)
-			checks[obligation.Key] = true
-		}
-	}
-	p.SubscribeUpdate(subscribes)
-}
-
-func (p *Program) SubscribeUpdate(pubkeys []solana.PublicKey) error {
-	for _, pubkey := range pubkeys {
-		p.backend.SubscribeAccount(pubkey, p)
-	}
-	return nil
+	p.backend.SubscribeProgram(p.id, p)
 }
 
 func (p *Program) OnAccountUpdate(account *backend.Account) error {
@@ -163,4 +181,3 @@ func (p *Program) updateAccount() {
 		}
 	}
 }
-
