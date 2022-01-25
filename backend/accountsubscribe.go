@@ -13,27 +13,39 @@ type AccountCallback interface {
 
 type AccountSubscription struct {
 	sub *ws.AccountSubscription
-	cb  AccountCallback
+	cb  []AccountCallback
 }
 
 func (backend *Backend) SubscribeAccount(pubkey solana.PublicKey, cb AccountCallback) error {
-	sub, err := backend.wsClient.AccountSubscribeWithOpts(pubkey, rpc.CommitmentProcessed, solana.EncodingBase64)
-	if err != nil {
-		return err
+	accountSub, ok := backend.accountSubs[pubkey]
+	if !ok {
+		accountSub = AccountSubscription{
+			cb:  make([]AccountCallback, 0),
+		}
+		backend.accountSubs[pubkey] = accountSub
 	}
-	backend.accountSubs[pubkey] = AccountSubscription{
-		sub: sub,
-		cb:  cb,
-	}
-	backend.wg.Add(1)
-	go backend.RecvAccount(pubkey, cb, sub)
+	accountSub.cb = append(accountSub.cb, cb)
 	return nil
 }
 
-func (backend *Backend) RecvAccount(key solana.PublicKey, cb AccountCallback, sub *ws.AccountSubscription) {
+func (backend *Backend) StartSubscribeAccount() error {
+	for pubkey, accountSub := range backend.accountSubs {
+		sub, err := backend.wsClient.AccountSubscribeWithOpts(pubkey, rpc.CommitmentProcessed, solana.EncodingBase64)
+		if err != nil {
+			backend.logger.Printf("%s", err.Error())
+			continue
+		}
+		accountSub.sub = sub
+		backend.wg.Add(1)
+		go backend.RecvAccount(pubkey, accountSub)
+	}
+	return nil
+}
+
+func (backend *Backend) RecvAccount(key solana.PublicKey, accountSub AccountSubscription) {
 	defer backend.wg.Done()
 	for {
-		got, err := sub.Recv()
+		got, err := accountSub.sub.Recv()
 		if err != nil {
 			backend.logger.Printf("RecvAccount err: %v", err)
 			syscall.Kill(syscall.Getpid(), syscall.SIGABRT)
@@ -50,7 +62,7 @@ func (backend *Backend) RecvAccount(key solana.PublicKey, cb AccountCallback, su
 			Account: &data.Value.Account,
 			Height:  data.Context.Slot,
 		}
-		if cb != nil {
+		for _, cb := range accountSub.cb {
 			cb.OnAccountUpdate(account)
 		}
 	}

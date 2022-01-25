@@ -1,15 +1,16 @@
-package tokenlending
+package solend
 
 import (
-	"bytes"
 	"context"
-	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"github.com/gagliardetto/solana-go"
 	"github.com/solana-liquidate/backend"
+	"github.com/solana-liquidate/env"
+	"github.com/solana-liquidate/pyth"
 	"github.com/solana-liquidate/utils"
 	"log"
+	"math/big"
 	"os"
 )
 
@@ -17,18 +18,22 @@ type Program struct {
 	ctx               context.Context
 	logger            *log.Logger
 	backend           *backend.Backend
+	env *env.Env
 	id                solana.PublicKey
+	oracle *pyth.Program
 	obligations       map[solana.PublicKey]*KeyedObligation
 	reserves          map[solana.PublicKey]*KeyedReserve
 	updateAccountChan chan *backend.Account
 }
 
-func NewProgram(id solana.PublicKey, ctx context.Context, be *backend.Backend) *Program {
+func NewProgram(id solana.PublicKey, ctx context.Context, env *env.Env, be *backend.Backend, oracle *pyth.Program) *Program {
 	p := &Program{
 		ctx:               ctx,
 		logger:            log.Default(),
 		backend:           be,
+		env: env,
 		id:                id,
+		oracle: oracle,
 		obligations:       make(map[solana.PublicKey]*KeyedObligation),
 		reserves:          make(map[solana.PublicKey]*KeyedReserve),
 		updateAccountChan: make(chan *backend.Account, 1024),
@@ -70,6 +75,10 @@ func (p *Program) Start() error {
 		return err
 	}
 	err = p.buildAccounts(accounts)
+	if err != nil {
+		return err
+	}
+	err = p.buildModels()
 	if err != nil {
 		return err
 	}
@@ -121,6 +130,20 @@ func (p *Program) upsertReserve(pubkey solana.PublicKey, height uint64, reserve 
 	return keyedReserve
 }
 
+func (p *Program) buildModels() error {
+	keyCheck := make(map[solana.PublicKey]bool)
+	priceKey := make([]solana.PublicKey, 0)
+	for _, reserve := range p.reserves {
+		_, ok := keyCheck[reserve.ReserveLiquidity.Oracle]
+		if !ok {
+			priceKey = append(priceKey, reserve.ReserveLiquidity.Oracle)
+			keyCheck[reserve.ReserveLiquidity.Oracle] = true
+		}
+	}
+	p.oracle.RetrievePrice(priceKey)
+	return nil
+}
+
 func (p *Program) accounts() ([]*backend.Account, error) {
 	//return p.backend.ProgramAccounts(p.id, []uint64{uint64(ObligationLayoutSize)})
 	return p.backend.ProgramAccounts(p.id, []uint64{})
@@ -140,8 +163,7 @@ func (p *Program) buildAccount(account *backend.Account) error {
 		p.upsertObligation(account.PubKey, account.Height, obligation)
 	} else if len(data) == ReserveLayoutSize {
 		reserve := ReserveLayout{}
-		buf := bytes.NewReader(data)
-		err := binary.Read(buf, binary.LittleEndian, &reserve)
+		err := reserve.unpack(data)
 		if err != nil {
 			return err
 		}
@@ -180,4 +202,131 @@ func (p *Program) updateAccount() {
 			return
 		}
 	}
+}
+
+func (p *Program) calculateRefreshedObligation(pubkey solana.PublicKey) error {
+	obligation, ok := p.obligations[pubkey]
+	if !ok {
+		return fmt.Errorf("no obligation")
+	}
+	//
+	p.logger.Printf("obligation: %s", obligation.Key.String())
+	depositValue := new(big.Float).SetInt64(0)
+	borrowValue := new(big.Float).SetInt64(0)
+	allowedBorrowValue := new(big.Float).SetInt64(0)
+	unhealthyBorrowValue := new(big.Float).SetInt64(0)
+	for _, deposit := range obligation.ObligationCollateral {
+		reserveKey := deposit.DepositReserve
+		reserve, ok := p.reserves[reserveKey]
+		if !ok {
+			p.logger.Printf("no reserve for obligation: %s", reserveKey.String())
+			continue
+		}
+		oracleKey := reserve.ReserveLiquidity.Oracle
+		oracle := p.oracle.GetPrice(oracleKey)
+		if oracle == nil {
+			p.logger.Printf("no oracle for obligation: %s", oracleKey.String())
+			continue
+		}
+		collateralExchangeRate := reserve.collateralExchangeRate()
+		//
+		marketValue := new(big.Float).Quo(
+			new(big.Float).Mul(
+				new(big.Float).Quo(
+					new(big.Float).Mul(
+						new(big.Float).SetInt64(int64(deposit.DepositedAmount)),
+						WAD,
+					),
+					collateralExchangeRate,
+				),
+				new(big.Float).SetFloat64(oracle.Twap.Value),
+			),
+			new(big.Float).SetInt64(int64(oracle.Exponent)),
+		)
+		loanToValueRate := reserve.loanToValueRate()
+		liquidationThresholdRate := reserve.liquidationThresholdRate()
+		depositValue = new(big.Float).Add(
+			depositValue,
+			marketValue,
+		)
+		allowedBorrowValue = new(big.Float).Add(
+			allowedBorrowValue,
+			new(big.Float).Mul(
+				marketValue,
+				loanToValueRate,
+			),
+		)
+		unhealthyBorrowValue = new(big.Float).Add(
+			unhealthyBorrowValue,
+			new(big.Float).Mul(
+				marketValue,
+				liquidationThresholdRate,
+			),
+		)
+	}
+	//
+	for _, borrow := range obligation.ObligationLiquidity {
+		reserveKey := borrow.BorrowReserve
+		reserve, ok := p.reserves[reserveKey]
+		if !ok {
+			p.logger.Printf("no reserve for obligation: %s", reserveKey.String())
+			continue
+		}
+		oracleKey := reserve.ReserveLiquidity.Oracle
+		oracle := p.oracle.GetPrice(oracleKey)
+		if oracle == nil {
+			p.logger.Printf("no oracle for obligation: %s", oracleKey.String())
+			continue
+		}
+		borrowAmountWadWithInterest := p.borrowedAmountWadWithInterest(
+			reserve.ReserveLiquidity.CumulativeBorrowRate.Value,
+			borrow.CumulativeBorrowRate.Value,
+			borrow.BorrowedAmount.Value,
+		)
+		marketValue :=
+			new(big.Float).Quo(
+				new(big.Float).Mul(
+					borrowAmountWadWithInterest,
+					new(big.Float).SetFloat64(oracle.Twap.Value),
+				),
+				new(big.Float).SetUint64(oracle.ValidSlot),
+			)
+		borrowValue = new(big.Float).Add(borrowValue, marketValue)
+	}
+	//
+	utilicationRatio :=
+		new(big.Float).Mul(
+			new(big.Float).Quo(borrowValue, depositValue),
+			new(big.Float).SetFloat64(100),
+		)
+	if utilicationRatio.Sign() <= 0 {
+		utilicationRatio = new(big.Float).SetInt64(0)
+	}
+	//
+	if borrowValue.Cmp(unhealthyBorrowValue) <= 0 {
+		p.logger.Printf("obligation is healthy")
+		return nil
+	}
+	p.logger.Printf("obligation %s is underwater, borrowed value: %s, unhealthy borrow value: %s",
+		obligation.Key.String(), borrowValue.String(), unhealthyBorrowValue.String(),
+	)
+	return nil
+}
+func (p *Program) borrowedAmountWadWithInterest(
+	reserveCumulativeBorrowRateWads *big.Float,
+	obligationCumulativeBorrowRateWads *big.Float,
+	obligationBorrowAmountWads *big.Float,
+	) *big.Float {
+	c := reserveCumulativeBorrowRateWads.Cmp(obligationCumulativeBorrowRateWads)
+	switch c {
+	case -1:
+		p.logger.Printf("interest rate cannot be negative")
+		return obligationBorrowAmountWads
+	case 0:
+		return obligationBorrowAmountWads
+	case 1:
+		r := new(big.Float).Quo(reserveCumulativeBorrowRateWads, obligationBorrowAmountWads)
+		return new(big.Float).Mul(obligationBorrowAmountWads, r)
+	}
+	return nil
 }
