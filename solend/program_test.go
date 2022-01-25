@@ -19,7 +19,7 @@ func TestSolendProgramAccounts(t *testing.T) {
 	ctx := context.Background()
 	be := backend.NewBackend(ctx, rpc.MainNetBetaSerum_RPC, rpc.MainNetBetaSerum_WS, 0, nil, "", "")
 	env := env.NewEnv(ctx)
-	pythId := solana.MustPublicKeyFromBase58("So1endDq2YkqhipRh3WViPa8hdiSpxWy6z3Z6tMCpAo")
+	pythId := solana.MustPublicKeyFromBase58("FsJ3A3u2vn5cTVofAjvy6y5kwABJAqYWpe4975bi2epH")
 	pyth := pyth2.NewProgram(pythId, ctx, be)
 	id := solana.MustPublicKeyFromBase58("So1endDq2YkqhipRh3WViPa8hdiSpxWy6z3Z6tMCpAo")
 	program := NewProgram(id, ctx, env, be, pyth)
@@ -87,4 +87,30 @@ func TestSolendProgramAccounts(t *testing.T) {
 			panic(err)
 		}
 	}
+}
+
+func TestSolendObligationCalculate(t *testing.T) {
+	ctx := context.Background()
+	be := backend.NewBackend(ctx, rpc.MainNetBetaSerum_RPC, rpc.MainNetBetaSerum_WS, 0, nil, "", "")
+	env := env.NewEnv(ctx)
+	pythId := solana.MustPublicKeyFromBase58("FsJ3A3u2vn5cTVofAjvy6y5kwABJAqYWpe4975bi2epH")
+	pyth := pyth2.NewProgram(pythId, ctx, be)
+	id := solana.MustPublicKeyFromBase58("So1endDq2YkqhipRh3WViPa8hdiSpxWy6z3Z6tMCpAo")
+	program := NewProgram(id, ctx, env, be, pyth)
+	//
+	env.Start()
+	be.Start()
+	pyth.Start()
+	program.Start()
+	pyth.Flash()
+	program.Flash()
+	be.StartSubscribeAccount()
+
+	//
+	// calculate
+	obligationKey := solana.MustPublicKeyFromBase58("11FXW5Mq9S1B4aHa7N9nPQz1Wxt3VpYbkHn8FPJ8mKx")
+	program.calculateRefreshedObligation(obligationKey)
+	//
+	program.Stop()
+	env.Stop()
 }

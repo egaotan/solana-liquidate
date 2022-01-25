@@ -315,10 +315,7 @@ func (reserve *KeyedReserve) collateralExchangeRate() *big.Float {
 		return INITIAL_COLLATERAL_RATE
 	}
 	rate := new(big.Float).Quo(
-		new(big.Float).Mul(
-			new(big.Float).SetInt64(int64(reserve.ReserveCollateral.MintTotalSupply)),
-			WAD,
-		),
+		new(big.Float).SetInt64(int64(reserve.ReserveCollateral.MintTotalSupply)),
 		totalLiquidity,
 	)
 	return rate
