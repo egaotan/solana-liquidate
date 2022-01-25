@@ -1,6 +1,7 @@
 package solend
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"encoding/json"
@@ -23,6 +24,7 @@ type Program struct {
 	env *env.Env
 	id                solana.PublicKey
 	oracle *pyth.Program
+	lendingMarkets map[solana.PublicKey]*KeyedLendingMarket
 	obligations       map[solana.PublicKey]*KeyedObligation
 	reserves          map[solana.PublicKey]*KeyedReserve
 	updateAccountChan chan *backend.Account
@@ -36,6 +38,7 @@ func NewProgram(id solana.PublicKey, ctx context.Context, env *env.Env, be *back
 		env: env,
 		id:                id,
 		oracle: oracle,
+		lendingMarkets: make(map[solana.PublicKey]*KeyedLendingMarket),
 		obligations:       make(map[solana.PublicKey]*KeyedObligation),
 		reserves:          make(map[solana.PublicKey]*KeyedReserve),
 		updateAccountChan: make(chan *backend.Account, 1024),
@@ -132,6 +135,22 @@ func (p *Program) upsertReserve(pubkey solana.PublicKey, height uint64, reserve 
 	return keyedReserve
 }
 
+func (p *Program) upsertLendingMarket(pubkey solana.PublicKey, height uint64, lendingMarket LendingMarketLayout) *KeyedLendingMarket {
+	keyedLendingMarket, ok := p.lendingMarkets[pubkey]
+	if !ok {
+		keyedLendingMarket = &KeyedLendingMarket{
+			Key:           pubkey,
+			Height:        height,
+			LendingMarketLayout: lendingMarket,
+		}
+		p.lendingMarkets[pubkey] = keyedLendingMarket
+	} else {
+		keyedLendingMarket.Height = height
+		keyedLendingMarket.LendingMarketLayout = lendingMarket
+	}
+	return keyedLendingMarket
+}
+
 func (p *Program) buildModels() error {
 	keyCheck := make(map[solana.PublicKey]bool)
 	priceKey := make([]solana.PublicKey, 0)
@@ -173,6 +192,14 @@ func (p *Program) buildAccount(account *backend.Account) error {
 			return fmt.Errorf("invalid reserve")
 		}
 		p.upsertReserve(account.PubKey, account.Height, reserve)
+	} else if len(data) == LendingMarketLayoutSize {
+		lendingMarket := LendingMarketLayout{}
+		buf := bytes.NewReader(data)
+		err := binary.Read(buf, binary.LittleEndian, &lendingMarket)
+		if err != nil {
+			return err
+		}
+		p.upsertLendingMarket(account.PubKey, account.Height, lendingMarket)
 	} else {
 		return fmt.Errorf("unused account, data length: %d", len(data))
 	}
@@ -393,7 +420,13 @@ func (p *Program) liquidateObligation(obligation *KeyedObligation, repayReserve 
 	if withdraw.IsZero() {
 		return
 	}
-	authority, _, err := solana.FindProgramAddress([][]byte{obligation.LendingMarket.Bytes()}, p.id)
+	lendingMarket, ok := p.lendingMarkets[obligation.LendingMarket]
+	if !ok {
+		return
+	}
+	seed := make([]byte, 1)
+	seed[0] = lendingMarket.BumpSeed
+	authority, _, err := solana.FindProgramAddress([][]byte{obligation.LendingMarket.Bytes(), seed}, p.id)
 	if err != nil {
 		return
 	}
