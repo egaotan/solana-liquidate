@@ -140,11 +140,11 @@ func (liquidity *ReserveLiquidityLayout) unpack(data []byte) error {
 	//
 	liquidity.AvailableAmount = binary.LittleEndian.Uint64(data[index : index+8])
 	index += 8
-	liquidity.BorrowedAmount.unpack(data[index : index+DecimalLayoutSize], true)
+	liquidity.BorrowedAmount.unpack(data[index:index+DecimalLayoutSize], true)
 	index += DecimalLayoutSize
-	liquidity.CumulativeBorrowRate.unpack(data[index : index+DecimalLayoutSize], true)
+	liquidity.CumulativeBorrowRate.unpack(data[index:index+DecimalLayoutSize], true)
 	index += DecimalLayoutSize
-	liquidity.MarketPrice.unpack(data[index : index+DecimalLayoutSize],true)
+	liquidity.MarketPrice.unpack(data[index:index+DecimalLayoutSize], true)
 	index += DecimalLayoutSize
 	return nil
 }
@@ -352,17 +352,17 @@ func (collateral *ObligationCollateralLayout) unpack(data []byte) error {
 	collateral.DepositReserve = key
 	collateral.DepositedAmount = binary.LittleEndian.Uint64(data[index : index+8])
 	index += 8
-	collateral.MarketValue.unpack(data[index : index+DecimalLayoutSize], true)
+	collateral.MarketValue.unpack(data[index:index+DecimalLayoutSize], true)
 	index += DecimalLayoutSize
 	return nil
 }
 
 type ObligationLiquidityLayout struct {
-	BorrowReserve            solana.PublicKey
+	BorrowReserve        solana.PublicKey
 	CumulativeBorrowRate DecimalLayout
-	BorrowedAmount      DecimalLayout
-	MarketValue              DecimalLayout
-	_                        [32]byte
+	BorrowedAmount       DecimalLayout
+	MarketValue          DecimalLayout
+	_                    [32]byte
 }
 
 func (liquidity *ObligationLiquidityLayout) unpack(data []byte) error {
@@ -373,11 +373,11 @@ func (liquidity *ObligationLiquidityLayout) unpack(data []byte) error {
 	}
 	index += 32
 	liquidity.BorrowReserve = key
-	liquidity.CumulativeBorrowRate.unpack(data[index : index+DecimalLayoutSize], true)
+	liquidity.CumulativeBorrowRate.unpack(data[index:index+DecimalLayoutSize], true)
 	index += DecimalLayoutSize
-	liquidity.BorrowedAmount.unpack(data[index : index+DecimalLayoutSize], true)
+	liquidity.BorrowedAmount.unpack(data[index:index+DecimalLayoutSize], true)
 	index += DecimalLayoutSize
-	liquidity.MarketValue.unpack(data[index : index+DecimalLayoutSize], true)
+	liquidity.MarketValue.unpack(data[index:index+DecimalLayoutSize], true)
 	index += DecimalLayoutSize
 	index += 32
 	return nil
@@ -418,13 +418,13 @@ func (layout *ObligationLayout) unpack(data []byte) error {
 	}
 	index += 32
 	layout.Owner = key
-	layout.DepositedValue.unpack(data[index : index+DecimalLayoutSize], true)
+	layout.DepositedValue.unpack(data[index:index+DecimalLayoutSize], true)
 	index += DecimalLayoutSize
-	layout.BorrowedValue.unpack(data[index : index+DecimalLayoutSize], true)
+	layout.BorrowedValue.unpack(data[index:index+DecimalLayoutSize], true)
 	index += DecimalLayoutSize
-	layout.AllowedBorrowValue.unpack(data[index : index+DecimalLayoutSize], true)
+	layout.AllowedBorrowValue.unpack(data[index:index+DecimalLayoutSize], true)
 	index += DecimalLayoutSize
-	layout.UnhealthyBorrowValue.unpack(data[index : index+DecimalLayoutSize], true)
+	layout.UnhealthyBorrowValue.unpack(data[index:index+DecimalLayoutSize], true)
 	index += DecimalLayoutSize
 	index += 64
 	layout.DepositsLen = data[index]

@@ -8,3 +8,5 @@ require (
 	gorm.io/driver/mysql v1.2.3
 	gorm.io/gorm v1.22.5
 )
+
+replace github.com/gagliardetto/solana-go v1.0.4 => github.com/egaotan/solana-go v1.0.4

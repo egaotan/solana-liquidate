@@ -21,7 +21,7 @@ func (backend *Backend) SubscribeProgram(pubkey solana.PublicKey, cb ProgramCall
 	if err != nil {
 		return err
 	}
-	backend.programSubs[pubkey] = ProgramSubscription{
+	backend.programSubs[pubkey] = &ProgramSubscription{
 		sub: sub,
 		cb:  cb,
 	}

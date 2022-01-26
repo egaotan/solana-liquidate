@@ -19,8 +19,8 @@ type AccountSubscription struct {
 func (backend *Backend) SubscribeAccount(pubkey solana.PublicKey, cb AccountCallback) error {
 	accountSub, ok := backend.accountSubs[pubkey]
 	if !ok {
-		accountSub = AccountSubscription{
-			cb:  make([]AccountCallback, 0),
+		accountSub = &AccountSubscription{
+			cb: make([]AccountCallback, 0),
 		}
 		backend.accountSubs[pubkey] = accountSub
 	}
@@ -42,7 +42,7 @@ func (backend *Backend) StartSubscribeAccount() error {
 	return nil
 }
 
-func (backend *Backend) RecvAccount(key solana.PublicKey, accountSub AccountSubscription) {
+func (backend *Backend) RecvAccount(key solana.PublicKey, accountSub *AccountSubscription) {
 	defer backend.wg.Done()
 	for {
 		got, err := accountSub.sub.Recv()

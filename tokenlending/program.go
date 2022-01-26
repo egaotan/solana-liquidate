@@ -12,21 +12,21 @@ import (
 )
 
 type Program struct {
-	ctx context.Context
-	logger *log.Logger
-	backend *backend.Backend
-	id solana.PublicKey
-	obligations map[solana.PublicKey]*KeyedObligation
-	updateAccountChan  chan *backend.Account
+	ctx               context.Context
+	logger            *log.Logger
+	backend           *backend.Backend
+	id                solana.PublicKey
+	obligations       map[solana.PublicKey]*KeyedObligation
+	updateAccountChan chan *backend.Account
 }
 
 func NewProgram(id solana.PublicKey, ctx context.Context, be *backend.Backend) *Program {
 	p := &Program{
-		ctx: ctx,
-		logger: log.Default(),
-		backend: be,
-		id: id,
-		obligations: make(map[solana.PublicKey]*KeyedObligation),
+		ctx:               ctx,
+		logger:            log.Default(),
+		backend:           be,
+		id:                id,
+		obligations:       make(map[solana.PublicKey]*KeyedObligation),
 		updateAccountChan: make(chan *backend.Account, 1024),
 	}
 	return p
@@ -127,8 +127,6 @@ func (p *Program) buildAccounts(accounts []*backend.Account) error {
 	return nil
 }
 
-
-
 func (p *Program) subscribeUpdate() {
 	checks := make(map[solana.PublicKey]bool)
 	subscribes := make([]solana.PublicKey, 0)
@@ -163,4 +161,3 @@ func (p *Program) updateAccount() {
 		}
 	}
 }
-

@@ -13,6 +13,7 @@ import (
 	"math/big"
 	"os"
 	"testing"
+	"time"
 )
 
 func TestSolendProgramAccounts(t *testing.T) {
@@ -35,12 +36,12 @@ func TestSolendProgramAccounts(t *testing.T) {
 	env.Stop()
 	// calculate
 	type LendingInfo struct {
-		LiquidityMint solana.PublicKey
+		LiquidityMint  solana.PublicKey
 		CollateralMint solana.PublicKey
 		ReservedAmount *big.Float
-		ReserveValue *big.Float
+		ReserveValue   *big.Float
 		BorrowedAmount *big.Float
-		BorrowedValue *big.Float
+		BorrowedValue  *big.Float
 	}
 	infos := make(map[solana.PublicKey]*LendingInfo)
 	for _, reserve := range program.reserves {
@@ -51,10 +52,10 @@ func TestSolendProgramAccounts(t *testing.T) {
 			info = &LendingInfo{
 				LiquidityMint:  liquidityMint,
 				CollateralMint: collateralMint,
-				ReservedAmount:       big.NewFloat(0),
-				ReserveValue:       big.NewFloat(0),
-				BorrowedAmount:       big.NewFloat(0),
-				BorrowedValue:       big.NewFloat(0),
+				ReservedAmount: big.NewFloat(0),
+				ReserveValue:   big.NewFloat(0),
+				BorrowedAmount: big.NewFloat(0),
+				BorrowedValue:  big.NewFloat(0),
 			}
 			infos[reserve.Key] = info
 		}
@@ -91,26 +92,31 @@ func TestSolendProgramAccounts(t *testing.T) {
 
 func TestSolendObligationCalculate(t *testing.T) {
 	ctx := context.Background()
-	be := backend.NewBackend(ctx, rpc.MainNetBetaSerum_RPC, rpc.MainNetBetaSerum_WS, 0, nil, "", "")
+	be := backend.NewBackend(ctx, rpc.MainNetBetaSerum_RPC, rpc.MainNetBetaSerum_WS, 3, []string{rpc.MainNetBeta_RPC}, rpc.MainNetBeta_RPC, rpc.MainNetBeta_RPC)
 	env := env.NewEnv(ctx)
 	pythId := solana.MustPublicKeyFromBase58("FsJ3A3u2vn5cTVofAjvy6y5kwABJAqYWpe4975bi2epH")
 	pyth := pyth2.NewProgram(pythId, ctx, be)
 	id := solana.MustPublicKeyFromBase58("So1endDq2YkqhipRh3WViPa8hdiSpxWy6z3Z6tMCpAo")
 	program := NewProgram(id, ctx, env, be, pyth)
 	//
+	be.ImportWallet("")
+	be.SetPlayer(solana.MustPublicKeyFromBase58("FrJZ4DP12Tg7r8rpjMqknkpCbJihqbEhfEBBQkpFimaS"))
 	env.Start()
 	be.Start()
 	pyth.Start()
 	program.Start()
-	pyth.Flash()
 	program.Flash()
+	pyth.Flash()
 	be.StartSubscribeAccount()
 
 	//
 	// calculate
 	obligationKey := solana.MustPublicKeyFromBase58("11FXW5Mq9S1B4aHa7N9nPQz1Wxt3VpYbkHn8FPJ8mKx")
 	program.calculateRefreshedObligation(obligationKey)
+	time.Sleep(time.Second * 5)
 	//
 	program.Stop()
 	env.Stop()
 }
+
+

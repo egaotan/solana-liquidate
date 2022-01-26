@@ -25,7 +25,7 @@ type Proxy struct {
 	transactions chan []byte
 	lock         int32
 	logger       *log.Logger
-	uuid  uint64
+	uuid         uint64
 }
 
 func NewProxy(ctx context.Context, tpuclient string) *Proxy {
@@ -119,7 +119,7 @@ func (proxy *Proxy) SendTransactions() {
 	for {
 		select {
 		case tx := <-proxy.transactions:
-			proxy.uuid ++
+			proxy.uuid++
 			go proxy.SendTransaction(tx, proxy.uuid)
 		}
 	}
@@ -147,7 +147,7 @@ func (proxy *Proxy) SendTransaction(tx []byte, id uint64) {
 			proxy.logger.Printf("send (%d, %d)", n, len(tx))
 		}
 	}
-	for i := 0;i < 10000;i ++ {
+	for i := 0; i < 10000; i++ {
 		for _, conn := range tpuConnections {
 			//proxy.logger.Printf("send tx to %s", addr)
 			_, err := conn.Write(tx)
@@ -157,7 +157,7 @@ func (proxy *Proxy) SendTransaction(tx []byte, id uint64) {
 				//proxy.logger.Printf("send (%d, %d)", n, len(tx))
 			}
 		}
-		if i % 100 == 99 {
+		if i%100 == 99 {
 			time.Sleep(time.Millisecond * 100)
 		}
 	}

@@ -197,7 +197,7 @@ type PriceLayout struct {
 	Drv5                float64
 	Aggregate           PriceInfoLayout
 	PriceComponents     map[solana.PublicKey]PriceComponent
-	Price float64
+	Price               float64
 }
 
 type KeyedPrice struct {

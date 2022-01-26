@@ -13,6 +13,14 @@ import (
 	"os"
 )
 
+type UpdateCallback interface {
+	OnUpdate(price *KeyedPrice) error
+}
+
+type UpdateSubscribe struct {
+	cb []UpdateCallback
+}
+
 type Program struct {
 	ctx               context.Context
 	logger            *log.Logger
@@ -21,6 +29,7 @@ type Program struct {
 	products          map[solana.PublicKey]*KeyedProduct
 	prices            map[solana.PublicKey]*KeyedPrice
 	updateAccountChan chan *backend.Account
+	updateSubs        map[solana.PublicKey]*UpdateSubscribe
 }
 
 func NewProgram(id solana.PublicKey, ctx context.Context, be *backend.Backend) *Program {
@@ -32,6 +41,7 @@ func NewProgram(id solana.PublicKey, ctx context.Context, be *backend.Backend) *
 		products:          make(map[solana.PublicKey]*KeyedProduct),
 		prices:            make(map[solana.PublicKey]*KeyedPrice),
 		updateAccountChan: make(chan *backend.Account, 1024),
+		updateSubs:        make(map[solana.PublicKey]*UpdateSubscribe),
 	}
 	return p
 }
@@ -46,14 +56,13 @@ func (p *Program) Id() solana.PublicKey {
 
 func (p *Program) save2Cache() {
 	type ProgramOutput struct {
-		Products    map[solana.PublicKey]*KeyedProduct
-		Prices map[solana.PublicKey]*KeyedPrice
+		Products map[solana.PublicKey]*KeyedProduct
+		Prices   map[solana.PublicKey]*KeyedPrice
 	}
 	output := ProgramOutput{
-		Products:    p.products,
-		Prices: p.prices,
+		Products: p.products,
+		Prices:   p.prices,
 	}
-
 	infoJson, _ := json.MarshalIndent(output, "", "    ")
 	name := fmt.Sprintf("%s%s_%s.json", utils.CachePath, p.Name(), p.Id())
 	err := os.WriteFile(name, infoJson, 0644)
@@ -85,8 +94,8 @@ func (p *Program) upsertProduct(pubkey solana.PublicKey, height uint64, product 
 	keyedProduct, ok := p.products[pubkey]
 	if !ok {
 		keyedProduct = &KeyedProduct{
-			Key:              pubkey,
-			Height:           height,
+			Key:           pubkey,
+			Height:        height,
 			ProductLayout: product,
 		}
 		p.products[pubkey] = keyedProduct
@@ -101,8 +110,8 @@ func (p *Program) upsertPrice(pubkey solana.PublicKey, height uint64, price Pric
 	keyedPrice, ok := p.prices[pubkey]
 	if !ok {
 		keyedPrice = &KeyedPrice{
-			Key:           pubkey,
-			Height:        height,
+			Key:         pubkey,
+			Height:      height,
 			PriceLayout: price,
 		}
 		p.prices[pubkey] = keyedPrice
@@ -157,12 +166,25 @@ func (p *Program) buildAccounts(accounts []*backend.Account) error {
 	return nil
 }
 
-func (p *Program) RetrievePrice(pubkeys []solana.PublicKey) error {
+func (p *Program) SubscribePrice(pubkeys []solana.PublicKey, cb UpdateCallback) error {
 	accounts, err := p.backend.Accounts(pubkeys)
 	if err != nil {
 		return err
 	}
 	p.buildAccounts(accounts)
+	//
+	for _, pubkey := range pubkeys {
+		_, ok := p.prices[pubkey]
+		if !ok {
+			continue
+		}
+		sub, ok := p.updateSubs[pubkey]
+		if !ok {
+			sub = &UpdateSubscribe{}
+			p.updateSubs[pubkey] = sub
+		}
+		sub.cb = append(sub.cb, cb)
+	}
 	return nil
 }
 
@@ -175,11 +197,8 @@ func (p *Program) GetPrice(key solana.PublicKey) *KeyedPrice {
 }
 
 func (p *Program) subscribeUpdate() {
-	for _, price := range p.prices {
-		p.backend.SubscribeAccount(price.Key, p)
-	}
-	for _, product := range p.products {
-		p.backend.SubscribeAccount(product.Key, p)
+	for pubkey, _ := range p.updateSubs {
+		p.backend.SubscribeAccount(pubkey, p)
 	}
 }
 
@@ -193,9 +212,19 @@ func (p *Program) updateAccount() {
 		select {
 		case updateAccount := <-p.updateAccountChan:
 			p.buildAccount(updateAccount)
+			price, ok := p.prices[updateAccount.PubKey]
+			if !ok {
+				continue
+			}
+			sub, ok := p.updateSubs[updateAccount.PubKey]
+			if !ok {
+				continue
+			}
+			for _, cb := range sub.cb {
+				cb.OnUpdate(price)
+			}
 		case <-p.ctx.Done():
 			return
 		}
 	}
 }
-

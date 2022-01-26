@@ -49,8 +49,15 @@ func (backend *Backend) Execute(command *TxCommand, client *rpc.Client, id int, 
 	logger.Printf("start execute command: %d, time: %s", command.Id,
 		time.Unix(int64(command.Id)/1000000, int64(command.Id)%1000000*1000).Format("2006-01-02 15:04:05.000000"))
 	if command.Simulate {
+		backend.executeSimulate(command, client, id, logger)
+		return
+	} else {
+		backend.execute(command, client, id, logger)
 		return
 	}
+}
+
+func (backend *Backend) execute(command *TxCommand, client *rpc.Client, id int, logger *log.Logger) {
 	executedArbitrage := &store.ExecutedArbitrage{
 		Id:           command.Id,
 		ExecuteId:    id,
@@ -139,6 +146,44 @@ func (backend *Backend) Execute(command *TxCommand, client *rpc.Client, id int, 
 	logger.Printf("transaction: %s", trxJson)
 }
 
+func (backend *Backend) executeSimulate(command *TxCommand, client *rpc.Client, id int, logger *log.Logger) {
+	trx := command.Trx
+	send := func() {
+		response, err := client.SimulateTransactionWithOpts(backend.ctx, trx, &rpc.SimulateTransactionOpts{
+			SigVerify:              false,
+			Commitment:             rpc.CommitmentFinalized,
+			ReplaceRecentBlockhash: true,
+			Accounts: &rpc.SimulateTransactionAccountsOpts{
+				Encoding:  solana.EncodingBase64,
+				Addresses: command.Accounts,
+			},
+		})
+		if err != nil {
+			logger.Printf("SimulateTransactionWithOpts err: %s", err.Error())
+		}
+		simulateTransactionResponse := response.Value
+		if simulateTransactionResponse.Logs == nil {
+			logger.Printf("log is nil")
+		}
+		logsJson, _ := json.MarshalIndent(simulateTransactionResponse.Logs, "", "    ")
+		logger.Printf("%s", logsJson)
+		if simulateTransactionResponse.Err != nil {
+			logger.Printf("simulate err: %v", simulateTransactionResponse.Err)
+		}
+		return
+	}
+	//
+	tt := time.Now().UnixNano() / time.Microsecond.Nanoseconds()
+	if uint64(tt)-command.Id > 20000000 {
+		logger.Printf("the arbitrage command is too old")
+		return
+	}
+	logger.Printf("trying %d......", 1)
+	send()
+	trxJson, _ := json.MarshalIndent(trx, "", "    ")
+	logger.Printf("transaction: %s", trxJson)
+}
+
 func (backend *Backend) startExecutor() {
 	for i := 0; i < len(backend.txChans); i++ {
 		for j := 0; j < ExecutorSize; j++ {
@@ -169,7 +214,6 @@ func (backend *Backend) Commit(level int, id uint64, ins []solana.Instruction, s
 		Simulate: simulate,
 		Accounts: accounts,
 	}
-
 	if backend.sendTx == 2 || backend.sendTx == 3 {
 		backend.logger.Printf("send transaction to tpu")
 		txData, err := trx.MarshalBinary()
