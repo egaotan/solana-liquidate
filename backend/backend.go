@@ -84,6 +84,9 @@ func (backend *Backend) Stop() {
 	if backend.sendTx == 0 {
 		return
 	}
+	if backend.slotSubs != nil {
+		backend.slotSubs.Unsubscribe()
+	}
 	for _, accountSub := range backend.accountSubs {
 		accountSub.sub.Unsubscribe()
 	}

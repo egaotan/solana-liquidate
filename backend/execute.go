@@ -153,14 +153,12 @@ func (backend *Backend) executeSimulate(command *TxCommand, client *rpc.Client, 
 			SigVerify:              false,
 			Commitment:             rpc.CommitmentFinalized,
 			ReplaceRecentBlockhash: true,
-			Accounts: &rpc.SimulateTransactionAccountsOpts{
-				Encoding:  solana.EncodingBase64,
-				Addresses: command.Accounts,
-			},
 		})
 		if err != nil {
 			logger.Printf("SimulateTransactionWithOpts err: %s", err.Error())
+			return
 		}
+
 		simulateTransactionResponse := response.Value
 		if simulateTransactionResponse.Logs == nil {
 			logger.Printf("log is nil")

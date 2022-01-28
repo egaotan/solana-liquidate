@@ -35,15 +35,16 @@
     "SSwpkEEcbUqx4vtoEByFjSkhKdCT862DNVb52nZg1UZ",
     "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin"
   ],
-  "user": "FrJZ4DP12Tg7r8rpjMqknkpCbJihqbEhfEBBQkpFimaS",
+  "user": "3pfNpRNu31FBzx84TnefG6iBkSqQxGtuL5G5v9aaxyv8",
   "key":"",
   "which": 1,
+  "flash_loan": false,
   "ding-url": "https://oapi.dingtalk.com/robot/send?access_token=405e839159e32d440e836d93c63b683a101391461d4639c42ec2dd440b7f0313",
   "db_url": "127.0.0.1:3306",
   "db_scheme": "arbitrage",
   "db_user": "root",
   "db_passwd": "Tgy_#0010",
   "listen": "0.0.0.0:8088",
-  "usdc_account": "C5dr2fk9zLvjuSjxe3tdvFurcZHKbfU1mHbpdv9Bfr7T",
+  "usdc_account": "8KK7jEoWApu45V4u223BEet2Uzu1WWq7PnfGcG8fkEVY",
   "usdc": 120000
 }

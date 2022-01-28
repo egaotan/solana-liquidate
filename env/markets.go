@@ -7,6 +7,20 @@ import (
 	"os"
 )
 
+type TokenSwap struct {
+	Key            solana.PublicKey
+	SwapA          solana.PublicKey
+	SwapB          solana.PublicKey
+	PoolToken      solana.PublicKey
+	TokenA         solana.PublicKey
+	TokenB         solana.PublicKey
+	PoolFeeAccount solana.PublicKey
+}
+type SwapMarket struct {
+	ProgramId solana.PublicKey
+	TokenSwap TokenSwap
+}
+
 func (e *Env) loadMarkets() {
 	infoJson, err := os.ReadFile(utils.MarketsFile)
 	if err != nil {
@@ -18,34 +32,14 @@ func (e *Env) loadMarkets() {
 	}
 }
 
-func (e *Env) UseMarket(program solana.PublicKey, key solana.PublicKey) bool {
-	if item, ok := e.markets[program]; ok {
-		if _, ok := item[key]; ok {
-			return true
+func (e *Env) FindMarket(tokens []solana.PublicKey) *TokenSwap {
+	for _, swap := range e.markets {
+		if swap.TokenSwap.TokenA == tokens[0] && swap.TokenSwap.TokenB == tokens[1] {
+			return &swap.TokenSwap
+		}
+		if swap.TokenSwap.TokenA == tokens[1] && swap.TokenSwap.TokenB == tokens[0] {
+			return &swap.TokenSwap
 		}
 	}
-	return false
-}
-
-func (e *Env) Markets(program solana.PublicKey) []solana.PublicKey {
-	marketKeys := make([]solana.PublicKey, 0)
-	markets, ok := e.markets[program]
-	if !ok {
-		return marketKeys
-	}
-	for marketKey, _ := range markets {
-		marketKeys = append(marketKeys, marketKey)
-	}
-	return marketKeys
-}
-
-func (e *Env) FindMarketProgram(key solana.PublicKey) solana.PublicKey {
-	for program, markets := range e.markets {
-		for market, use := range markets {
-			if market == key && use {
-				return program
-			}
-		}
-	}
-	return solana.PublicKey{}
+	return nil
 }

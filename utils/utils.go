@@ -18,7 +18,7 @@ var (
 	UsersSimulateFile     = ConfigPath + "tokens_user_simulate.json"
 	UsersOwnerFile        = ConfigPath + "users_owner.json"
 	UserOwnerSimulateFile = ConfigPath + "users_owner_simulate.json"
-	MarketsFile           = ConfigPath + "markets.json"
+	MarketsFile           = ConfigPath + "swap_markets.json"
 	ConfigFile            = ConfigPath + "config.json"
 	ValidatorFile         = ConfigPath + "validator.json"
 )

@@ -23,10 +23,11 @@ func TestSolendProgramAccounts(t *testing.T) {
 	pythId := solana.MustPublicKeyFromBase58("FsJ3A3u2vn5cTVofAjvy6y5kwABJAqYWpe4975bi2epH")
 	pyth := pyth2.NewProgram(pythId, ctx, be)
 	id := solana.MustPublicKeyFromBase58("So1endDq2YkqhipRh3WViPa8hdiSpxWy6z3Z6tMCpAo")
-	program := NewProgram(id, ctx, env, be, pyth)
+	program := NewProgram(id, ctx, env, be, true, pyth)
 	//
 	env.Start()
 	be.Start()
+	be.SubscribeSlot(nil)
 	pyth.Start()
 	program.Start()
 	pyth.Flash()
@@ -92,17 +93,18 @@ func TestSolendProgramAccounts(t *testing.T) {
 
 func TestSolendObligationCalculate(t *testing.T) {
 	ctx := context.Background()
-	be := backend.NewBackend(ctx, rpc.MainNetBetaSerum_RPC, rpc.MainNetBetaSerum_WS, 3, []string{rpc.MainNetBeta_RPC}, rpc.MainNetBeta_RPC, rpc.MainNetBeta_RPC)
+	be := backend.NewBackend(ctx, rpc.MainNetBetaSerum_RPC, rpc.MainNetBetaSerum_WS, 1, []string{"https://free.rpcpool.com"}, "https://free.rpcpool.com", "https://free.rpcpool.com")
 	env := env.NewEnv(ctx)
 	pythId := solana.MustPublicKeyFromBase58("FsJ3A3u2vn5cTVofAjvy6y5kwABJAqYWpe4975bi2epH")
 	pyth := pyth2.NewProgram(pythId, ctx, be)
 	id := solana.MustPublicKeyFromBase58("So1endDq2YkqhipRh3WViPa8hdiSpxWy6z3Z6tMCpAo")
-	program := NewProgram(id, ctx, env, be, pyth)
+	program := NewProgram(id, ctx, env, be, true, pyth)
 	//
 	be.ImportWallet("")
-	be.SetPlayer(solana.MustPublicKeyFromBase58("FrJZ4DP12Tg7r8rpjMqknkpCbJihqbEhfEBBQkpFimaS"))
+	be.SetPlayer(solana.MustPublicKeyFromBase58("3pfNpRNu31FBzx84TnefG6iBkSqQxGtuL5G5v9aaxyv8"))
 	env.Start()
 	be.Start()
+	be.SubscribeSlot(nil)
 	pyth.Start()
 	program.Start()
 	program.Flash()
@@ -118,5 +120,3 @@ func TestSolendObligationCalculate(t *testing.T) {
 	program.Stop()
 	env.Stop()
 }
-
-

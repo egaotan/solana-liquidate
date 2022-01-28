@@ -14,7 +14,7 @@ type Env struct {
 	tokensUserSimulate map[solana.PublicKey]solana.PublicKey
 	usersOwner         map[solana.PublicKey]solana.PublicKey
 	usersOwnerSimulate map[solana.PublicKey]solana.PublicKey
-	markets            map[solana.PublicKey]map[solana.PublicKey]bool
+	markets            map[solana.PublicKey]*SwapMarket
 }
 
 func NewEnv(ctx context.Context) *Env {
@@ -26,7 +26,7 @@ func NewEnv(ctx context.Context) *Env {
 		tokensUserSimulate: make(map[solana.PublicKey]solana.PublicKey),
 		usersOwner:         make(map[solana.PublicKey]solana.PublicKey),
 		usersOwnerSimulate: make(map[solana.PublicKey]solana.PublicKey),
-		markets:            make(map[solana.PublicKey]map[solana.PublicKey]bool),
+		markets:            make(map[solana.PublicKey]*SwapMarket),
 	}
 	return env
 }

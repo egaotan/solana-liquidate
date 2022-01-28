@@ -24,6 +24,8 @@ type Program struct {
 	backend           *backend.Backend
 	env               *env.Env
 	id                solana.PublicKey
+	flashloan         bool
+	usdcAmount        uint64
 	oracle            *pyth.Program
 	lendingMarkets    map[solana.PublicKey]*KeyedLendingMarket
 	obligations       map[solana.PublicKey]*KeyedObligation
@@ -32,13 +34,14 @@ type Program struct {
 	updated           chan bool
 }
 
-func NewProgram(id solana.PublicKey, ctx context.Context, env *env.Env, be *backend.Backend, oracle *pyth.Program) *Program {
+func NewProgram(id solana.PublicKey, ctx context.Context, env *env.Env, be *backend.Backend, flashloan bool, oracle *pyth.Program) *Program {
 	p := &Program{
 		ctx:               ctx,
 		logger:            log.Default(),
 		backend:           be,
 		env:               env,
 		id:                id,
+		flashloan:         flashloan,
 		oracle:            oracle,
 		lendingMarkets:    make(map[solana.PublicKey]*KeyedLendingMarket),
 		obligations:       make(map[solana.PublicKey]*KeyedObligation),
@@ -260,7 +263,10 @@ func (p *Program) Calculate() {
 
 func (p *Program) calculate() {
 	for k, _ := range p.obligations {
-		p.calculateRefreshedObligation(k)
+		err := p.calculateRefreshedObligation(k)
+		if err != nil {
+			p.logger.Printf("%s", err.Error())
+		}
 	}
 }
 
@@ -271,12 +277,42 @@ func (p *Program) calculateRefreshedObligation(pubkey solana.PublicKey) error {
 	}
 	//
 	p.logger.Printf("obligation: %s", obligation.Key.String())
+	/*
+		for _, deposit := range obligation.ObligationCollateral {
+			reserveKey := deposit.DepositReserve
+			reserve, ok := p.reserves[reserveKey]
+			if !ok {
+				return fmt.Errorf("no reserve for obligation: %s", reserveKey.String())
+			}
+			token := p.env.Token(reserve.ReserveLiquidity.Mint)
+			if token == nil {
+				return fmt.Errorf("no token info, token: %s", reserve.ReserveLiquidity.Mint.String())
+			}
+		}
+		for _, borrow := range obligation.ObligationLiquidity {
+			reserveKey := borrow.BorrowReserve
+			reserve, ok := p.reserves[reserveKey]
+			if !ok {
+				return fmt.Errorf("no reserve for obligation: %s", reserveKey.String())
+			}
+			token := p.env.Token(reserve.ReserveLiquidity.Mint)
+			if token == nil {
+				return fmt.Errorf("no token info, token: %s", reserve.ReserveLiquidity.Mint.String())
+			}
+		}
+	*/
 	depositValue := new(big.Float).SetInt64(0)
 	borrowValue := new(big.Float).SetInt64(0)
 	allowedBorrowValue := new(big.Float).SetInt64(0)
 	unhealthyBorrowValue := new(big.Float).SetInt64(0)
 	selectedDeposit := -1
+	//selectedDepositMarketValue := &big.Float{}
 	selectedBorrow := -1
+	//selectedBorrowMarketValue := &big.Float{}
+	selectedUSDCDeposit := -1
+	selectedUSDCDepositMarketValue := &big.Float{}
+	selectedUSDCBorrow := -1
+	selectedUSDCBorrowMarketValue := &big.Float{}
 	for i, deposit := range obligation.ObligationCollateral {
 		//
 		reserveKey := deposit.DepositReserve
@@ -295,7 +331,10 @@ func (p *Program) calculateRefreshedObligation(pubkey solana.PublicKey) error {
 		if token == nil {
 			return fmt.Errorf("no token info, token: %s", reserve.ReserveLiquidity.Mint.String())
 		}
+		//
 		collateralExchangeRate := reserve.collateralExchangeRate()
+		loanToValueRate := reserve.loanToValueRate()
+		liquidationThresholdRate := reserve.liquidationThresholdRate()
 		//
 		marketValue :=
 			new(big.Float).Quo(
@@ -308,8 +347,6 @@ func (p *Program) calculateRefreshedObligation(pubkey solana.PublicKey) error {
 				),
 				new(big.Float).SetInt64(int64(token.Decimal)),
 			)
-		loanToValueRate := reserve.loanToValueRate()
-		liquidationThresholdRate := reserve.liquidationThresholdRate()
 		//
 		depositValue = new(big.Float).Add(
 			depositValue,
@@ -330,11 +367,27 @@ func (p *Program) calculateRefreshedObligation(pubkey solana.PublicKey) error {
 			),
 		)
 		//
-		if selectedDeposit == -1 {
-			selectedDeposit = i
-		} else {
-			if marketValue.Cmp(obligation.ObligationCollateral[selectedDeposit].MarketValue.Value) > 0 {
+		collateralUser := p.env.TokenUser(reserve.ReserveCollateral.Mint)
+		if !collateralUser.IsZero() {
+			if selectedDeposit == -1 {
 				selectedDeposit = i
+				//selectedDepositMarketValue = marketValue
+			} else {
+				if marketValue.Cmp(obligation.ObligationCollateral[selectedDeposit].MarketValue.Value) > 0 {
+					selectedDeposit = i
+					//selectedDepositMarketValue = marketValue
+				}
+			}
+		}
+		if reserve.ReserveLiquidity.Mint == program.USDC {
+			if selectedUSDCDeposit == -1 {
+				selectedUSDCDeposit = i
+				selectedUSDCDepositMarketValue = marketValue
+			} else {
+				if marketValue.Cmp(obligation.ObligationCollateral[selectedUSDCDeposit].MarketValue.Value) > 0 {
+					selectedUSDCDeposit = i
+					selectedUSDCDepositMarketValue = marketValue
+				}
 			}
 		}
 	}
@@ -374,13 +427,32 @@ func (p *Program) calculateRefreshedObligation(pubkey solana.PublicKey) error {
 		//
 		borrowValue = new(big.Float).Add(borrowValue, marketValue)
 		//
-		if selectedBorrow == -1 {
-			selectedBorrow = i
-		} else {
-			if marketValue.Cmp(obligation.ObligationLiquidity[selectedBorrow].MarketValue.Value) > 0 {
+		borrowUser := p.env.TokenUser(reserve.ReserveLiquidity.Mint)
+		if !borrowUser.IsZero() {
+			if selectedBorrow == -1 {
 				selectedBorrow = i
+				//selectedBorrowMarketValue = marketValue
+			} else {
+				if marketValue.Cmp(obligation.ObligationLiquidity[selectedBorrow].MarketValue.Value) > 0 {
+					selectedBorrow = i
+					//selectedBorrowMarketValue = marketValue
+				}
 			}
 		}
+		if reserve.ReserveLiquidity.Mint == program.USDC {
+			if selectedUSDCBorrow == -1 {
+				selectedUSDCBorrow = i
+				selectedUSDCBorrowMarketValue = marketValue
+			} else {
+				if marketValue.Cmp(obligation.ObligationCollateral[selectedUSDCBorrow].MarketValue.Value) > 0 {
+					selectedUSDCBorrow = i
+					selectedUSDCBorrowMarketValue = marketValue
+				}
+			}
+		}
+	}
+	if depositValue.Sign() <= 0 || borrowValue.Sign() <= 0 {
+		return fmt.Errorf("value is invalid")
 	}
 	//
 	utilizationRatio :=
@@ -397,28 +469,52 @@ func (p *Program) calculateRefreshedObligation(pubkey solana.PublicKey) error {
 	//
 	if borrowValue.Cmp(unhealthyBorrowValue) <= 0 {
 		p.logger.Printf("obligation is healthy")
-		//return nil
+		return nil
 	}
 	p.logger.Printf("obligation %s is underwater, borrowed value: %s, unhealthy borrow value: %s",
 		obligation.Key.String(), borrowValue.String(), unhealthyBorrowValue.String(),
 	)
 	//
-	if selectedDeposit == -1 || selectedBorrow == -1 {
-		p.logger.Printf("no deposit or borrow found")
-		return nil
+	selected1 := -1
+	selected2 := -1
+	if p.flashloan {
+		if selectedUSDCBorrow == -1 {
+			selected1 = selectedUSDCDeposit
+			selected2 = selectedBorrow
+		} else if selectedUSDCDeposit == -1 {
+			selected1 = selectedDeposit
+			selected2 = selectedUSDCBorrow
+		} else {
+			if selectedUSDCBorrowMarketValue.Cmp(selectedUSDCDepositMarketValue) > 0 {
+				selected1 = selectedDeposit
+				selected2 = selectedUSDCBorrow
+			} else {
+				selected1 = selectedUSDCDeposit
+				selected2 = selectedBorrow
+			}
+		}
+	} else {
+		if selectedUSDCBorrow == -1 || selectedDeposit == -1 {
+			return fmt.Errorf("no usdc deposit or borrow found")
+		}
+		selected1 = selectedDeposit
+		selected2 = selectedUSDCBorrow
 	}
-	err := p.liquidateObligation(obligation, selectedDeposit, selectedBorrow)
+	if selected1 == -1 || selected2 == -1 {
+		return fmt.Errorf("cannot select deposit or borrow")
+	}
+	err := p.liquidateObligation(obligation, selected1, selected2)
 	if err != nil {
-		p.logger.Printf("%s", err.Error())
 		return err
 	}
 	return nil
 }
 
-func (p *Program) liquidateObligation(obligation *KeyedObligation, selectDeposit int, selectBorrow int) error {
+func (p *Program) liquidateObligationLocal(obligation *KeyedObligation, selectDeposit int, selectBorrow int) error {
 	ins := make([]solana.Instruction, 0)
 	depositKeys := make([]solana.PublicKey, 0)
 	borrowKeys := make([]solana.PublicKey, 0)
+	reserves := make(map[solana.PublicKey]*KeyedReserve)
 	// refresh all reserves
 	for _, deposit := range obligation.ObligationCollateral {
 		reserveKey := deposit.DepositReserve
@@ -426,12 +522,17 @@ func (p *Program) liquidateObligation(obligation *KeyedObligation, selectDeposit
 		if !ok {
 			return fmt.Errorf("no reserve for key: %s", reserveKey.String())
 		}
-		in, err := p.InstructionRefreshReserve(reserve.Key, reserve.ReserveLiquidity.Oracle)
+		_, ok = reserves[reserveKey]
+		if ok {
+			continue
+		}
+		in, err := p.InstructionRefreshReserve(reserve.Key, reserve.ReserveLiquidity.Oracle, reserve.ReserveLiquidity.SwitchBoardOracle)
 		if err != nil {
 			return err
 		}
 		ins = append(ins, in)
 		depositKeys = append(depositKeys, reserve.Key)
+		reserves[reserveKey] = reserve
 	}
 	for _, borrow := range obligation.ObligationLiquidity {
 		reserveKey := borrow.BorrowReserve
@@ -439,12 +540,17 @@ func (p *Program) liquidateObligation(obligation *KeyedObligation, selectDeposit
 		if !ok {
 			return fmt.Errorf("no reserve for key: %s", reserveKey.String())
 		}
-		in, err := p.InstructionRefreshReserve(reserve.Key, reserve.ReserveLiquidity.Oracle)
+		_, ok = reserves[reserveKey]
+		if ok {
+			continue
+		}
+		in, err := p.InstructionRefreshReserve(reserve.Key, reserve.ReserveLiquidity.Oracle, reserve.ReserveLiquidity.SwitchBoardOracle)
 		if err != nil {
 			return err
 		}
 		ins = append(ins, in)
 		borrowKeys = append(borrowKeys, reserve.Key)
+		reserves[reserveKey] = reserve
 	}
 	// refresh obligation
 	in, err := p.InstructionRefreshObligation(obligation.Key, depositKeys, borrowKeys)
@@ -452,6 +558,7 @@ func (p *Program) liquidateObligation(obligation *KeyedObligation, selectDeposit
 		return err
 	}
 	ins = append(ins, in)
+	//
 	// liquidate
 	repayReserveKey := obligation.ObligationLiquidity[selectBorrow].BorrowReserve
 	repayReserve, ok := p.reserves[repayReserveKey]
@@ -481,7 +588,7 @@ func (p *Program) liquidateObligation(obligation *KeyedObligation, selectDeposit
 	}
 	seed := make([]byte, 1)
 	seed[0] = lendingMarket.BumpSeed
-	authority, _, err := solana.FindProgramAddress([][]byte{obligation.LendingMarket.Bytes(), seed}, p.id)
+	authority, err := solana.CreateProgramAddress([][]byte{obligation.LendingMarket.Bytes(), seed}, p.id)
 	if err != nil {
 		return fmt.Errorf("hahahahahaha")
 	}
@@ -492,14 +599,18 @@ func (p *Program) liquidateObligation(obligation *KeyedObligation, selectDeposit
 		return err
 	}
 	ins = append(ins, in)
-	// redeem colla
+	// redeem collateral
+	withdrawOwner := p.env.UsersOwner(withdraw)
+	if owner.IsZero() {
+		return fmt.Errorf("no user owner: %s", repay.String())
+	}
 	withdrawLiquidity := p.env.TokenUser(withdrawReserve.ReserveLiquidity.Mint)
 	if withdrawLiquidity.IsZero() {
 		return fmt.Errorf("no token user: %s", withdrawReserve.ReserveLiquidity.Mint.String())
 	}
 	in, err = p.InstructionRedeemReserveCollateral(
 		uint64(100000), withdraw, withdrawLiquidity, withdrawReserve.Key, withdrawReserve.ReserveCollateral.Mint,
-		withdrawReserve.ReserveLiquidity.Supply, lendingMarket.Key, authority, owner)
+		withdrawReserve.ReserveLiquidity.Supply, lendingMarket.Key, authority, withdrawOwner)
 	if err != nil {
 		return err
 	}
@@ -510,18 +621,149 @@ func (p *Program) liquidateObligation(obligation *KeyedObligation, selectDeposit
 	return nil
 }
 
-func (p *Program) InstructionRefreshReserve(reserve solana.PublicKey, oracle solana.PublicKey) (solana.Instruction, error) {
+func (p *Program) liquidateObligation(obligation *KeyedObligation, selectDeposit int, selectBorrow int) error {
+	ins := make([]solana.Instruction, 0)
+	depositKeys := make([]solana.PublicKey, 0)
+	borrowKeys := make([]solana.PublicKey, 0)
+	reserves := make(map[solana.PublicKey]*KeyedReserve)
+	// refresh all reserves
+	for _, deposit := range obligation.ObligationCollateral {
+		reserveKey := deposit.DepositReserve
+		reserve, ok := p.reserves[reserveKey]
+		if !ok {
+			return fmt.Errorf("no reserve for key: %s", reserveKey.String())
+		}
+		depositKeys = append(depositKeys, reserve.Key)
+		_, ok = reserves[reserveKey]
+		if ok {
+			continue
+		}
+		in, err := p.InstructionRefreshReserve(reserve.Key, reserve.ReserveLiquidity.Oracle, reserve.ReserveLiquidity.SwitchBoardOracle)
+		if err != nil {
+			return err
+		}
+		ins = append(ins, in)
+		reserves[reserveKey] = reserve
+	}
+	for _, borrow := range obligation.ObligationLiquidity {
+		reserveKey := borrow.BorrowReserve
+		reserve, ok := p.reserves[reserveKey]
+		if !ok {
+			return fmt.Errorf("no reserve for key: %s", reserveKey.String())
+		}
+		borrowKeys = append(borrowKeys, reserve.Key)
+		_, ok = reserves[reserveKey]
+		if ok {
+			continue
+		}
+		in, err := p.InstructionRefreshReserve(reserve.Key, reserve.ReserveLiquidity.Oracle, reserve.ReserveLiquidity.SwitchBoardOracle)
+		if err != nil {
+			return err
+		}
+		ins = append(ins, in)
+		reserves[reserveKey] = reserve
+	}
+	// refresh obligation
+	in, err := p.InstructionRefreshObligation(obligation.Key, depositKeys, borrowKeys)
+	if err != nil {
+		return err
+	}
+	ins = append(ins, in)
+	//
+	// liquidate
+	repayReserveKey := obligation.ObligationLiquidity[selectBorrow].BorrowReserve
+	repayReserve, ok := p.reserves[repayReserveKey]
+	if !ok {
+		return fmt.Errorf("no reserve for obligation: %s", repayReserveKey.String())
+	}
+	repay := p.env.TokenUser(repayReserve.ReserveLiquidity.Mint)
+	if repay.IsZero() {
+		return fmt.Errorf("no token user: %s", repayReserve.ReserveLiquidity.Mint.String())
+	}
+	owner := p.env.UsersOwner(repay)
+	if owner.IsZero() {
+		return fmt.Errorf("no user owner: %s", repay.String())
+	}
+	withdrawReserveKey := obligation.ObligationCollateral[selectDeposit].DepositReserve
+	withdrawReserve, ok := p.reserves[withdrawReserveKey]
+	if !ok {
+		return fmt.Errorf("no reserve for obligation: %s", withdrawReserveKey.String())
+	}
+	withdrawCollateral := p.env.TokenUser(withdrawReserve.ReserveCollateral.Mint)
+	if withdrawCollateral.IsZero() {
+		return fmt.Errorf("no token user: %s", withdrawReserve.ReserveCollateral.Mint.String())
+	}
+	lendingMarket, ok := p.lendingMarkets[obligation.LendingMarket]
+	if !ok {
+		return fmt.Errorf("no lending market: %s", obligation.LendingMarket.String())
+	}
+	seed := make([]byte, 1)
+	seed[0] = lendingMarket.BumpSeed
+	lendingMarketAuthority, err := solana.CreateProgramAddress([][]byte{obligation.LendingMarket.Bytes(), seed}, p.id)
+	if err != nil {
+		return fmt.Errorf("hahahahahaha")
+	}
+	withdraw := p.env.TokenUser(withdrawReserve.ReserveLiquidity.Mint)
+	if withdraw.IsZero() {
+		return fmt.Errorf("no token user: %s", withdrawReserve.ReserveLiquidity.Mint.String())
+	}
+	swap := p.env.FindMarket([]solana.PublicKey{withdrawReserve.ReserveLiquidity.Mint, repayReserve.ReserveLiquidity.Mint})
+	if swap == nil {
+		return fmt.Errorf("no swap market")
+	}
+	swapAuthority, _, err := solana.FindProgramAddress([][]byte{swap.Key.Bytes()}, program.Swap)
+	if err != nil {
+		return err
+	}
+	swapSrc := swap.SwapA
+	swapDst := swap.SwapB
+	if withdrawReserve.ReserveLiquidity.Mint == swap.TokenB {
+		swapSrc = swap.SwapB
+		swapDst = swap.SwapA
+	}
+	if p.flashloan {
+		in, err = p.InstructionLiquidateWithFlashloan(uint64(0), repayReserve.ReserveLiquidity.Supply, repay, repayReserve.Key,
+			repayReserve.ReserveConfig.FeeReceiver, repay, lendingMarket.Key, lendingMarketAuthority, program.Token, program.Liquidate,
+			withdrawCollateral, withdraw, withdrawReserve.Key, withdrawReserve.ReserveCollateral.Supply, withdrawReserve.ReserveCollateral.Mint,
+			withdrawReserve.ReserveLiquidity.Supply, program.Solend, obligation.Key, program.Swap, swap.Key, swapAuthority,
+			swapSrc, swapDst, swap.PoolToken, swap.PoolFeeAccount, owner)
+		if err != nil {
+			return err
+		}
+	} else {
+		in, err = p.InstructionLiquidate(p.usdcAmount, repayReserve.ReserveLiquidity.Supply, repay, repayReserve.Key,
+			lendingMarket.Key, lendingMarketAuthority, program.Token,
+			withdrawCollateral, withdraw, withdrawReserve.Key, withdrawReserve.ReserveCollateral.Supply, withdrawReserve.ReserveCollateral.Mint,
+			withdrawReserve.ReserveLiquidity.Supply, program.Solend, obligation.Key, program.Swap, swap.Key, swapAuthority,
+			swapSrc, swapDst, swap.PoolToken, swap.PoolFeeAccount, owner)
+		if err != nil {
+			return err
+		}
+	}
+	ins = append(ins, in)
+	//
+	id := time.Now().UnixNano() / 1000
+	p.backend.Commit(0, uint64(id), ins, false, nil)
+	return nil
+}
+
+func (p *Program) InstructionRefreshReserve(reserve solana.PublicKey, oracle solana.PublicKey, switchboardFeedAddress solana.PublicKey) (solana.Instruction, error) {
 	data := make([]byte, 1)
 	data[0] = 3
 	instruction := &program.Instruction{
 		IsAccounts: []*solana.AccountMeta{
 			{PublicKey: reserve, IsSigner: false, IsWritable: true},
 			{PublicKey: oracle, IsSigner: false, IsWritable: false},
-			{PublicKey: program.SysClock, IsSigner: false, IsWritable: false},
 		},
 		IsData:      data,
 		IsProgramID: p.id,
 	}
+	if !switchboardFeedAddress.IsZero() {
+		instruction.IsAccounts = append(instruction.IsAccounts,
+			&solana.AccountMeta{PublicKey: switchboardFeedAddress, IsSigner: false, IsWritable: false})
+	}
+	instruction.IsAccounts = append(instruction.IsAccounts,
+		&solana.AccountMeta{PublicKey: program.SysClock, IsSigner: false, IsWritable: false})
 	return instruction, nil
 }
 
@@ -555,7 +797,7 @@ func (p *Program) InstructionLiquidateObligation(
 	obligation solana.PublicKey, lendingMarket solana.PublicKey, authority solana.PublicKey,
 	player solana.PublicKey,
 ) (solana.Instruction, error) {
-	data := make([]byte, 5)
+	data := make([]byte, 9)
 	data[0] = 12
 	binary.LittleEndian.PutUint64(data[1:], amount)
 	instruction := &program.Instruction{
@@ -584,7 +826,7 @@ func (p *Program) InstructionRedeemReserveCollateral(amount uint64,
 	reserve solana.PublicKey, reserveCollateralMint solana.PublicKey, reserveLiquiditySupply solana.PublicKey,
 	lendingMarket solana.PublicKey, authority solana.PublicKey,
 	owner solana.PublicKey) (solana.Instruction, error) {
-	data := make([]byte, 5)
+	data := make([]byte, 9)
 	data[0] = 5
 	binary.LittleEndian.PutUint64(data[1:], amount)
 	instruction := &program.Instruction{
@@ -596,14 +838,111 @@ func (p *Program) InstructionRedeemReserveCollateral(amount uint64,
 			{PublicKey: reserveLiquiditySupply, IsSigner: false, IsWritable: true},
 			{PublicKey: lendingMarket, IsSigner: false, IsWritable: false},
 			{PublicKey: authority, IsSigner: false, IsWritable: false},
-			{PublicKey: lendingMarket, IsSigner: false, IsWritable: false},
-			{PublicKey: authority, IsSigner: false, IsWritable: false},
 			{PublicKey: owner, IsSigner: true, IsWritable: false},
 			{PublicKey: program.SysClock, IsSigner: false, IsWritable: false},
 			{PublicKey: program.Token, IsSigner: false, IsWritable: false},
 		},
 		IsData:      data,
 		IsProgramID: p.id,
+	}
+	return instruction, nil
+}
+
+func (p *Program) InstructionLiquidateWithFlashloan(amount uint64,
+	repaySupply solana.PublicKey, repay solana.PublicKey, repayReserve solana.PublicKey,
+	repayReserveLiquidityFee solana.PublicKey, repayReserveLiquidityHostFee solana.PublicKey,
+	lendingMarket solana.PublicKey, lendingMarketAuthority solana.PublicKey, tokenProgram solana.PublicKey,
+	flashloanReceiveProgram solana.PublicKey,
+	withdrawCollateral solana.PublicKey, withdraw solana.PublicKey,
+	withdrawReserve solana.PublicKey, withdrawCollateralSupply solana.PublicKey,
+	withdrawCollateralMint solana.PublicKey, withdrawLiquiditySupply solana.PublicKey,
+	solendProgram solana.PublicKey, obligation solana.PublicKey,
+	swapProgram solana.PublicKey, swapMarket solana.PublicKey, swapMarketAuthority solana.PublicKey,
+	swapSource solana.PublicKey, swapDestination solana.PublicKey,
+	swapPoolMint solana.PublicKey, swapFee solana.PublicKey, owner solana.PublicKey) (solana.Instruction, error) {
+	data := make([]byte, 9)
+	data[0] = 13
+	binary.LittleEndian.PutUint64(data[1:], 0)
+	instruction := &program.Instruction{
+		IsAccounts: []*solana.AccountMeta{
+			{PublicKey: repaySupply, IsSigner: false, IsWritable: true},
+			{PublicKey: repay, IsSigner: false, IsWritable: true},
+			{PublicKey: repayReserve, IsSigner: false, IsWritable: true},
+			{PublicKey: repayReserveLiquidityFee, IsSigner: false, IsWritable: true},
+			{PublicKey: repayReserveLiquidityHostFee, IsSigner: false, IsWritable: true},
+			{PublicKey: lendingMarket, IsSigner: false, IsWritable: false},
+			{PublicKey: lendingMarketAuthority, IsSigner: false, IsWritable: false},
+			{PublicKey: tokenProgram, IsSigner: false, IsWritable: false},
+			{PublicKey: flashloanReceiveProgram, IsSigner: false, IsWritable: false},
+			{PublicKey: withdrawCollateral, IsSigner: false, IsWritable: true},
+			{PublicKey: withdraw, IsSigner: false, IsWritable: true},
+			{PublicKey: repayReserve, IsSigner: false, IsWritable: true},
+			{PublicKey: withdrawReserve, IsSigner: false, IsWritable: true},
+			{PublicKey: withdrawCollateralSupply, IsSigner: false, IsWritable: true},
+			{PublicKey: withdrawCollateralMint, IsSigner: false, IsWritable: true},
+			{PublicKey: withdrawLiquiditySupply, IsSigner: false, IsWritable: true},
+			{PublicKey: solendProgram, IsSigner: false, IsWritable: false},
+			{PublicKey: obligation, IsSigner: false, IsWritable: true},
+			{PublicKey: lendingMarket, IsSigner: false, IsWritable: false},
+			{PublicKey: lendingMarketAuthority, IsSigner: false, IsWritable: false},
+			{PublicKey: swapProgram, IsSigner: false, IsWritable: false},
+			{PublicKey: swapMarket, IsSigner: false, IsWritable: true},
+			{PublicKey: swapMarketAuthority, IsSigner: false, IsWritable: false},
+			{PublicKey: swapSource, IsSigner: false, IsWritable: true},
+			{PublicKey: swapDestination, IsSigner: false, IsWritable: true},
+			{PublicKey: swapPoolMint, IsSigner: false, IsWritable: true},
+			{PublicKey: swapFee, IsSigner: false, IsWritable: true},
+			{PublicKey: owner, IsSigner: true, IsWritable: false},
+			{PublicKey: program.SysClock, IsSigner: false, IsWritable: false},
+		},
+		IsData:      data,
+		IsProgramID: p.id,
+	}
+	return instruction, nil
+}
+
+func (p *Program) InstructionLiquidate(amount uint64,
+	repaySupply solana.PublicKey, repay solana.PublicKey, repayReserve solana.PublicKey,
+	lendingMarket solana.PublicKey, lendingMarketAuthority solana.PublicKey, tokenProgram solana.PublicKey,
+	withdrawCollateral solana.PublicKey, withdraw solana.PublicKey,
+	withdrawReserve solana.PublicKey, withdrawCollateralSupply solana.PublicKey,
+	withdrawCollateralMint solana.PublicKey, withdrawLiquiditySupply solana.PublicKey,
+	solendProgram solana.PublicKey, obligation solana.PublicKey,
+	swapProgram solana.PublicKey, swapMarket solana.PublicKey, swapMarketAuthority solana.PublicKey,
+	swapSource solana.PublicKey, swapDestination solana.PublicKey,
+	swapPoolMint solana.PublicKey, swapFee solana.PublicKey, owner solana.PublicKey) (solana.Instruction, error) {
+	data := make([]byte, 9)
+	// very dangerous here
+	data[0] = 1
+	binary.LittleEndian.PutUint64(data[1:], 0)
+	instruction := &program.Instruction{
+		IsAccounts: []*solana.AccountMeta{
+			{PublicKey: repay, IsSigner: false, IsWritable: true},
+			{PublicKey: repaySupply, IsSigner: false, IsWritable: true},
+			{PublicKey: tokenProgram, IsSigner: false, IsWritable: false},
+			{PublicKey: withdrawCollateral, IsSigner: false, IsWritable: true},
+			{PublicKey: withdraw, IsSigner: false, IsWritable: true},
+			{PublicKey: repayReserve, IsSigner: false, IsWritable: true},
+			{PublicKey: withdrawReserve, IsSigner: false, IsWritable: true},
+			{PublicKey: withdrawCollateralSupply, IsSigner: false, IsWritable: true},
+			{PublicKey: withdrawCollateralMint, IsSigner: false, IsWritable: true},
+			{PublicKey: withdrawLiquiditySupply, IsSigner: false, IsWritable: true},
+			{PublicKey: solendProgram, IsSigner: false, IsWritable: false},
+			{PublicKey: obligation, IsSigner: false, IsWritable: true},
+			{PublicKey: lendingMarket, IsSigner: false, IsWritable: false},
+			{PublicKey: lendingMarketAuthority, IsSigner: false, IsWritable: false},
+			{PublicKey: swapProgram, IsSigner: false, IsWritable: false},
+			{PublicKey: swapMarket, IsSigner: false, IsWritable: true},
+			{PublicKey: swapMarketAuthority, IsSigner: false, IsWritable: false},
+			{PublicKey: swapSource, IsSigner: false, IsWritable: true},
+			{PublicKey: swapDestination, IsSigner: false, IsWritable: true},
+			{PublicKey: swapPoolMint, IsSigner: false, IsWritable: true},
+			{PublicKey: swapFee, IsSigner: false, IsWritable: true},
+			{PublicKey: owner, IsSigner: true, IsWritable: false},
+			{PublicKey: program.SysClock, IsSigner: false, IsWritable: false},
+		},
+		IsData:      data,
+		IsProgramID: program.Liquidate,
 	}
 	return instruction, nil
 }

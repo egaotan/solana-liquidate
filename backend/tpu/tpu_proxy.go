@@ -57,7 +57,7 @@ func (proxy *Proxy) RefreshConnection() {
 	proxy.logger.Printf("refresh connection, slot (%d, %d)", startSlot, endSlot)
 	for slot := startSlot; slot < endSlot; slot++ {
 		leader := proxy.lss.GetSlotLeader(slot)
-		proxy.logger.Printf("slot leader (%d, %s)", slot, leader.String())
+		//proxy.logger.Printf("slot leader (%d, %s)", slot, leader.String())
 		if !leader.IsZero() && !leaderAddress[leader] {
 			leaderAddress[leader] = true
 			tpu := proxy.ans.GetNode(leader)

@@ -26,6 +26,7 @@ func (backend *Backend) getWallet(key solana.PublicKey) *solana.PrivateKey {
 			return &wallet.prikey
 		}
 	}
+	backend.logger.Printf("need a key unknown: %s", key.String())
 	return &solana.PrivateKey{}
 }
 

@@ -20,6 +20,7 @@ type Config struct {
 	User              solana.PublicKey   `json:"user"`
 	Key               string             `json:"key"`
 	Which             int                `json:"which"`
+	FlashLoan         bool               `json:"flash_loan"`
 	WorkSpace         string             `json:"workspace"`
 	DingUrl           string             `json:"ding-url"`
 	DBUrl             string             `json:"db_url"`
