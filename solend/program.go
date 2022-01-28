@@ -18,6 +18,10 @@ import (
 	"time"
 )
 
+type UpdateInfo struct {
+	Key solana.PublicKey
+}
+
 type Program struct {
 	ctx               context.Context
 	logger            *log.Logger
@@ -32,8 +36,9 @@ type Program struct {
 	obligations       map[solana.PublicKey]*KeyedObligation
 	reserves          map[solana.PublicKey]*KeyedReserve
 	updateAccountChan chan *backend.Account
-	updated           chan bool
+	updated           chan *UpdateInfo
 	cached map[solana.PublicKey]uint64
+	ignore map[solana.PublicKey]bool
 }
 
 func NewProgram(id solana.PublicKey, ctx context.Context, env *env.Env, be *backend.Backend, flashloan bool, oracle *pyth.Program, usdcAmount uint64, threshold uint64) *Program {
@@ -51,8 +56,9 @@ func NewProgram(id solana.PublicKey, ctx context.Context, env *env.Env, be *back
 		obligations:       make(map[solana.PublicKey]*KeyedObligation),
 		reserves:          make(map[solana.PublicKey]*KeyedReserve),
 		updateAccountChan: make(chan *backend.Account, 1024),
-		updated:           make(chan bool, 1024),
+		updated:           make(chan *UpdateInfo, 1024),
 		cached: make(map[solana.PublicKey]uint64),
+		ignore: make(map[solana.PublicKey]bool),
 	}
 	return p
 }
@@ -224,6 +230,7 @@ func (p *Program) buildAccount(account *backend.Account) error {
 func (p *Program) buildAccounts(accounts []*backend.Account) error {
 	for _, account := range accounts {
 		err := p.buildAccount(account)
+		p.ignore[account.PubKey] = false
 		if err != nil {
 			p.logger.Printf(err.Error())
 		}
@@ -245,7 +252,14 @@ func (p *Program) updateAccount() {
 		select {
 		case updateAccount := <-p.updateAccountChan:
 			p.buildAccount(updateAccount)
-			p.updated <- true
+			p.ignore[updateAccount.PubKey] = false
+			_, ok := p.obligations[updateAccount.PubKey]
+			if !ok {
+				continue
+			}
+			p.updated <- &UpdateInfo {
+				Key: updateAccount.PubKey,
+			}
 		case <-p.ctx.Done():
 			return
 		}
@@ -253,22 +267,30 @@ func (p *Program) updateAccount() {
 }
 
 func (p *Program) OnUpdate(price *pyth.KeyedPrice) error {
-	p.updated <- true
+	p.updated <- &UpdateInfo{
+	}
 	return nil
 }
 
 func (p *Program) Calculate() {
 	for {
 		select {
-		case <-p.updated:
-			p.calculate()
+		case info := <-p.updated:
+			p.calculate(info)
 		}
 	}
 }
 
-func (p *Program) calculate() {
-	for k, _ := range p.obligations {
-		err := p.calculateRefreshedObligation(k)
+func (p *Program) calculate(info *UpdateInfo) {
+	if info.Key.IsZero() {
+		for k, _ := range p.obligations {
+			err := p.calculateRefreshedObligation(k)
+			if err != nil {
+				p.logger.Printf("%s", err.Error())
+			}
+		}
+	} else {
+		err := p.calculateRefreshedObligation(info.Key)
 		if err != nil {
 			p.logger.Printf("%s", err.Error())
 		}
@@ -285,8 +307,12 @@ func (p *Program) calculateRefreshedObligation(pubkey solana.PublicKey) error {
 	if !ok {
 		return fmt.Errorf("no obligation")
 	}
+	ig, ok := p.ignore[pubkey]
+	if ok && ig {
+		return nil
+	}
 	//
-	p.logger.Printf("obligation: %s", obligation.Key.String())
+	//p.logger.Printf("obligation: %s", obligation.Key.String())
 	/*
 		for _, deposit := range obligation.ObligationCollateral {
 			reserveKey := deposit.DepositReserve
@@ -476,8 +502,16 @@ func (p *Program) calculateRefreshedObligation(pubkey solana.PublicKey) error {
 	}
 	 */
 	//
+	threshold := new(big.Float).SetUint64(p.threshold * 2)
+	if depositValue.Cmp(threshold) <= 0 || borrowValue.Cmp(threshold) <= 0 {
+		p.ignore[obligation.Key] = true
+		return nil
+	}
+	/*
 	p.logger.Printf("obligation: %s deposit value：%s, borrow value: %s, allowed borrow value: %s, unhealthy borrow value: %s",
 		obligation.Key.String(), depositValue.String(), borrowValue.String(), allowedBorrowValue.String(), unhealthyBorrowValue.String())
+	*/
+
 	//
 	if borrowValue.Cmp(unhealthyBorrowValue) <= 0 {
 		p.logger.Printf("obligation is healthy")
