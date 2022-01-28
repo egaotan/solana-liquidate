@@ -23,6 +23,10 @@ type UpdateInfo struct {
 	Key solana.PublicKey
 }
 
+type Status struct {
+	Ignore bool
+}
+
 type Program struct {
 	ctx               context.Context
 	logger            *log.Logger
@@ -39,7 +43,7 @@ type Program struct {
 	updateAccountChan chan *backend.Account
 	updated           chan *UpdateInfo
 	cached map[solana.PublicKey]uint64
-	ignore map[solana.PublicKey]bool
+	ignore map[solana.PublicKey]*Status
 }
 
 func NewProgram(id solana.PublicKey, ctx context.Context, env *env.Env, be *backend.Backend, flashloan bool, oracle *pyth.Program, usdcAmount uint64, threshold uint64) *Program {
@@ -59,7 +63,7 @@ func NewProgram(id solana.PublicKey, ctx context.Context, env *env.Env, be *back
 		updateAccountChan: make(chan *backend.Account, 1024),
 		updated:           make(chan *UpdateInfo, 1024),
 		cached: make(map[solana.PublicKey]uint64),
-		ignore: make(map[solana.PublicKey]bool),
+		ignore: make(map[solana.PublicKey]*Status),
 	}
 	return p
 }
@@ -234,7 +238,9 @@ func (p *Program) buildAccount(account *backend.Account) error {
 func (p *Program) buildAccounts(accounts []*backend.Account) error {
 	for _, account := range accounts {
 		err := p.buildAccount(account)
-		p.ignore[account.PubKey] = false
+		p.ignore[account.PubKey] = &Status{
+			Ignore: false,
+		}
 		if err != nil {
 			p.logger.Printf(err.Error())
 		}
@@ -259,8 +265,12 @@ func (p *Program) updateAccount() {
 			if !ok {
 				continue
 			}
+			status, ok := p.ignore[updateAccount.PubKey]
+			if !ok {
+				continue
+			}
 			p.buildAccount(updateAccount)
-			p.ignore[updateAccount.PubKey] = false
+			status.Ignore = false
 			p.updated <- &UpdateInfo {
 				Key: updateAccount.PubKey,
 			}
@@ -291,21 +301,23 @@ func (p *Program) calculate(info *UpdateInfo) {
 			err := p.calculateRefreshedObligation(k)
 			if err != nil {
 				p.logger.Printf("%s", err.Error())
-				p.ignore[k] = true
+				status, _ := p.ignore[k]
+				status.Ignore = true
 			}
 		}
 	} else {
 		err := p.calculateRefreshedObligation(info.Key)
 		if err != nil {
 			p.logger.Printf("%s", err.Error())
-			p.ignore[info.Key] = true
+			status, _ := p.ignore[info.Key]
+			status.Ignore = true
 		}
 	}
 }
 
 func (p *Program) calculateRefreshedObligation(pubkey solana.PublicKey) error {
 	ig, ok := p.ignore[pubkey]
-	if ok && ig {
+	if ok && ig.Ignore {
 		return nil
 	}
 	newId := time.Now().UnixNano() / 1000
