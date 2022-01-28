@@ -522,7 +522,8 @@ func (p *Program) calculateRefreshedObligation(pubkey solana.PublicKey) error {
 	//
 	threshold := new(big.Float).SetUint64(p.threshold * 2)
 	if depositValue.Cmp(threshold) <= 0 || borrowValue.Cmp(threshold) <= 0 {
-		p.ignore[obligation.Key] = true
+		status, _ := p.ignore[obligation.Key]
+		status.Ignore = true
 		return nil
 	}
 	/*
