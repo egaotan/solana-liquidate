@@ -49,7 +49,7 @@ func NewLiquidate(ctx context.Context, cfg *config.Config) *Liquidate {
 	pyth := pyth.NewProgram(program.Pyth, ctx, be)
 	liquidte.pyth = pyth
 	//
-	liquidate := solend.NewProgram(program.Solend, ctx, e, be, false, pyth)
+	liquidate := solend.NewProgram(program.Solend, ctx, e, be, false, pyth, cfg.Usdc, cfg.LiquidateThreshold)
 	liquidte.liquidate = liquidate
 	return liquidte
 }

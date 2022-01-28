@@ -26,15 +26,17 @@ type Program struct {
 	id                solana.PublicKey
 	flashloan         bool
 	usdcAmount        uint64
+	threshold uint64
 	oracle            *pyth.Program
 	lendingMarkets    map[solana.PublicKey]*KeyedLendingMarket
 	obligations       map[solana.PublicKey]*KeyedObligation
 	reserves          map[solana.PublicKey]*KeyedReserve
 	updateAccountChan chan *backend.Account
 	updated           chan bool
+	cached map[solana.PublicKey]uint64
 }
 
-func NewProgram(id solana.PublicKey, ctx context.Context, env *env.Env, be *backend.Backend, flashloan bool, oracle *pyth.Program) *Program {
+func NewProgram(id solana.PublicKey, ctx context.Context, env *env.Env, be *backend.Backend, flashloan bool, oracle *pyth.Program, usdcAmount uint64, threshold uint64) *Program {
 	p := &Program{
 		ctx:               ctx,
 		logger:            log.Default(),
@@ -42,12 +44,15 @@ func NewProgram(id solana.PublicKey, ctx context.Context, env *env.Env, be *back
 		env:               env,
 		id:                id,
 		flashloan:         flashloan,
+		usdcAmount: usdcAmount,
+		threshold: threshold,
 		oracle:            oracle,
 		lendingMarkets:    make(map[solana.PublicKey]*KeyedLendingMarket),
 		obligations:       make(map[solana.PublicKey]*KeyedObligation),
 		reserves:          make(map[solana.PublicKey]*KeyedReserve),
 		updateAccountChan: make(chan *backend.Account, 1024),
 		updated:           make(chan bool, 1024),
+		cached: make(map[solana.PublicKey]uint64),
 	}
 	return p
 }
@@ -271,6 +276,11 @@ func (p *Program) calculate() {
 }
 
 func (p *Program) calculateRefreshedObligation(pubkey solana.PublicKey) error {
+	newId := time.Now().UnixNano() / 1000
+	cachedId, ok := p.cached[pubkey]
+	if ok && uint64(newId) - cachedId < uint64(100000) {
+		return fmt.Errorf("too much in 100 milliseconds")
+	}
 	obligation, ok := p.obligations[pubkey]
 	if !ok {
 		return fmt.Errorf("no obligation")
@@ -451,6 +461,7 @@ func (p *Program) calculateRefreshedObligation(pubkey solana.PublicKey) error {
 			}
 		}
 	}
+	/*
 	if depositValue.Sign() <= 0 || borrowValue.Sign() <= 0 {
 		return fmt.Errorf("value is invalid")
 	}
@@ -463,6 +474,7 @@ func (p *Program) calculateRefreshedObligation(pubkey solana.PublicKey) error {
 	if utilizationRatio.Sign() <= 0 {
 		utilizationRatio = new(big.Float).SetInt64(0)
 	}
+	 */
 	//
 	p.logger.Printf("obligation: %s deposit value：%s, borrow value: %s, allowed borrow value: %s, unhealthy borrow value: %s",
 		obligation.Key.String(), depositValue.String(), borrowValue.String(), allowedBorrowValue.String(), unhealthyBorrowValue.String())
@@ -502,6 +514,10 @@ func (p *Program) calculateRefreshedObligation(pubkey solana.PublicKey) error {
 	}
 	if selected1 == -1 || selected2 == -1 {
 		return fmt.Errorf("cannot select deposit or borrow")
+	}
+	xx := obligation.ObligationLiquidity[selected2].BorrowedAmount.Value
+	if xx.Cmp(new(big.Float).SetUint64(p.threshold)) < 0 {
+		return fmt.Errorf("too small borrowed value")
 	}
 	err := p.liquidateObligation(obligation, selected1, selected2)
 	if err != nil {
@@ -618,6 +634,7 @@ func (p *Program) liquidateObligationLocal(obligation *KeyedObligation, selectDe
 	//
 	id := time.Now().UnixNano() / 1000
 	p.backend.Commit(0, uint64(id), ins, true, nil)
+	p.cached[obligation.Key] = uint64(id)
 	return nil
 }
 
@@ -744,6 +761,7 @@ func (p *Program) liquidateObligation(obligation *KeyedObligation, selectDeposit
 	//
 	id := time.Now().UnixNano() / 1000
 	p.backend.Commit(0, uint64(id), ins, false, nil)
+	p.cached[obligation.Key] = uint64(id)
 	return nil
 }
 
