@@ -15,6 +15,7 @@ import (
 	"log"
 	"math/big"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -212,6 +213,9 @@ func (p *Program) buildAccount(account *backend.Account) error {
 		if reserve.LendingMarket.IsZero() {
 			return fmt.Errorf("invalid reserve")
 		}
+		if strings.Index(reserve.ReserveLiquidity.Oracle.String(), "11111111") != -1 {
+			return fmt.Errorf("invalid oracle")
+		}
 		p.upsertReserve(account.PubKey, account.Height, reserve)
 	} else if len(data) == LendingMarketLayoutSize {
 		lendingMarket := LendingMarketLayout{}
@@ -287,17 +291,23 @@ func (p *Program) calculate(info *UpdateInfo) {
 			err := p.calculateRefreshedObligation(k)
 			if err != nil {
 				p.logger.Printf("%s", err.Error())
+				p.ignore[k] = true
 			}
 		}
 	} else {
 		err := p.calculateRefreshedObligation(info.Key)
 		if err != nil {
 			p.logger.Printf("%s", err.Error())
+			p.ignore[info.Key] = true
 		}
 	}
 }
 
 func (p *Program) calculateRefreshedObligation(pubkey solana.PublicKey) error {
+	ig, ok := p.ignore[pubkey]
+	if ok && ig {
+		return nil
+	}
 	newId := time.Now().UnixNano() / 1000
 	cachedId, ok := p.cached[pubkey]
 	if ok && uint64(newId) - cachedId < uint64(100000) {
@@ -306,10 +316,6 @@ func (p *Program) calculateRefreshedObligation(pubkey solana.PublicKey) error {
 	obligation, ok := p.obligations[pubkey]
 	if !ok {
 		return fmt.Errorf("no obligation")
-	}
-	ig, ok := p.ignore[pubkey]
-	if ok && ig {
-		return nil
 	}
 	//
 	//p.logger.Printf("obligation: %s", obligation.Key.String())
