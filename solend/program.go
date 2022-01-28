@@ -914,7 +914,7 @@ func (p *Program) InstructionLiquidate(amount uint64,
 	data := make([]byte, 9)
 	// very dangerous here
 	data[0] = 1
-	binary.LittleEndian.PutUint64(data[1:], 0)
+	binary.LittleEndian.PutUint64(data[1:], amount)
 	instruction := &program.Instruction{
 		IsAccounts: []*solana.AccountMeta{
 			{PublicKey: repay, IsSigner: false, IsWritable: true},
