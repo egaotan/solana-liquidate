@@ -255,12 +255,12 @@ func (p *Program) updateAccount() {
 	for {
 		select {
 		case updateAccount := <-p.updateAccountChan:
-			p.buildAccount(updateAccount)
-			p.ignore[updateAccount.PubKey] = false
 			_, ok := p.obligations[updateAccount.PubKey]
 			if !ok {
 				continue
 			}
+			p.buildAccount(updateAccount)
+			p.ignore[updateAccount.PubKey] = false
 			p.updated <- &UpdateInfo {
 				Key: updateAccount.PubKey,
 			}

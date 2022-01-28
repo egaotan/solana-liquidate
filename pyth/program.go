@@ -211,6 +211,10 @@ func (p *Program) updateAccount() {
 	for {
 		select {
 		case updateAccount := <-p.updateAccountChan:
+			_, ok := p.prices[updateAccount.PubKey]
+			if !ok {
+				continue
+			}
 			p.buildAccount(updateAccount)
 			price, ok := p.prices[updateAccount.PubKey]
 			if !ok {
