@@ -90,5 +90,5 @@ func (backend *Backend) Stop() {
 	for _, accountSub := range backend.accountSubs {
 		accountSub.sub.Unsubscribe()
 	}
-	backend.wg.Wait()
+	//backend.wg.Wait()
 }

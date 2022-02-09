@@ -85,7 +85,7 @@ func main() {
 
 	//
 	cfg.Usdc = cfg.Usdc * 1000000
-	cfg.LiquidateThreshold = cfg.LiquidateThreshold * 1000000
+	//cfg.LiquidateThreshold = cfg.LiquidateThreshold
 
 	cfg.WorkSpace = workSpace
 	workspace, _ := os.Getwd()

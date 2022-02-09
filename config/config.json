@@ -27,7 +27,7 @@
   ],
   "blockhash_endpoint": "https://free.rpcpool.com",
   "tpu_endpoint": "https://free.rpcpool.com",
-  "tx_endpoint_size": 50,
+  "tx_endpoint_size": 1,
   "send_tx": 3,
   "node_id": 0,
   "programs": [

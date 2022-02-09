@@ -46,6 +46,7 @@ type Program struct {
 	updated           chan *UpdateInfo
 	cached map[solana.PublicKey]uint64
 	ignore map[solana.PublicKey]*Status
+	fireCounter uint64
 }
 
 func NewProgram(id solana.PublicKey, ctx context.Context, env *env.Env, be *backend.Backend, flashloan bool, oracle *pyth.Program, usdcAmount uint64, threshold uint64) *Program {
@@ -305,6 +306,7 @@ func (p *Program) Calculate() {
 }
 
 func (p *Program) calculate(info *UpdateInfo) {
+	p.fireCounter = 0
 	for k, _ := range p.obligations {
 		err := p.calculateRefreshedObligation(k)
 		if err != nil {
@@ -527,9 +529,6 @@ func (p *Program) calculateRefreshedObligation(pubkey solana.PublicKey) error {
 	}
 	 */
 	//
-	p.logger.Printf("obligation %s, borrowed value: %s, unhealthy borrow value: %s",
-		obligation.Key.String(), borrowValue.String(), unhealthyBorrowValue.String(),
-	)
 
 	threshold := new(big.Float).SetUint64(p.threshold * 2)
 	if depositValue.Cmp(threshold) <= 0 || borrowValue.Cmp(threshold) <= 0 {
@@ -537,14 +536,14 @@ func (p *Program) calculateRefreshedObligation(pubkey solana.PublicKey) error {
 		status.Ignore = true
 		return nil
 	}
-	/*
-	p.logger.Printf("obligation: %s deposit value：%s, borrow value: %s, allowed borrow value: %s, unhealthy borrow value: %s",
-		obligation.Key.String(), depositValue.String(), borrowValue.String(), allowedBorrowValue.String(), unhealthyBorrowValue.String())
-	*/
 
-	p.logger.Printf("====== obligation %s, borrowed value: %s, unhealthy borrow value: %s",
-		obligation.Key.String(), borrowValue.String(), unhealthyBorrowValue.String(),
+	x := new(big.Float).Quo(
+		new(big.Float).Sub(unhealthyBorrowValue, borrowValue),
+		borrowValue)
+	p.logger.Printf("obligation %s, borrowed value: %s, unhealthy borrow value: %s, x: %s, counter: %d",
+		obligation.Key.String(), borrowValue.String(), unhealthyBorrowValue.String(), x.String(), p.fireCounter,
 	)
+	p.fireCounter ++
 
 	checkedBorrow := new(big.Float).Mul(borrowValue, new(big.Float).SetFloat64(1.1))
 	if checkedBorrow.Cmp(unhealthyBorrowValue) <= 0 {
