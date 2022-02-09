@@ -798,7 +798,9 @@ func (p *Program) liquidateObligation(obligation *KeyedObligation, selectDeposit
 	}
 	swap := p.env.FindMarket([]solana.PublicKey{withdrawReserve.ReserveLiquidity.Mint, repayReserve.ReserveLiquidity.Mint})
 	if swap == nil {
-		return fmt.Errorf("no swap market")
+		return fmt.Errorf("no swap market, (%s, %s)",
+			withdrawReserve.ReserveLiquidity.Mint.String(),
+			repayReserve.ReserveLiquidity.Mint.String())
 	}
 	swapAuthority, _, err := solana.FindProgramAddress([][]byte{swap.Key.Bytes()}, program.Swap)
 	if err != nil {
