@@ -430,7 +430,7 @@ func (p *Program) calculateRefreshedObligation(pubkey solana.PublicKey) error {
 		)
 		//
 		collateralUser := p.env.TokenUser(reserve.ReserveCollateral.Mint)
-		if !collateralUser.IsZero() {
+		if !collateralUser.IsZero() && reserve.ReserveLiquidity.Mint != program.USDC {
 			if selectedDeposit == -1 {
 				selectedDeposit = i
 				//selectedDepositMarketValue = marketValue
