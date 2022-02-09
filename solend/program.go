@@ -275,9 +275,6 @@ func (p *Program) updateAccount() {
 			}
 			p.buildAccount(updateAccount)
 			status.Ignore = false
-			p.updated <- &UpdateInfo {
-				Key: updateAccount.PubKey,
-			}
 		case <-p.ctx.Done():
 			return
 		}
@@ -294,26 +291,25 @@ func (p *Program) Calculate() {
 	for {
 		select {
 		case info := <-p.updated:
+		L:
+			for {
+				select {
+				case info = <-p.updated:
+				default:
+					break L
+				}
+			}
 			p.calculate(info)
 		}
 	}
 }
 
 func (p *Program) calculate(info *UpdateInfo) {
-	if info.Key.IsZero() {
-		for k, _ := range p.obligations {
-			err := p.calculateRefreshedObligation(k)
-			if err != nil {
-				p.logger.Printf("1 %s %s", k.String(), err.Error())
-				status, _ := p.ignore[k]
-				status.Ignore = true
-			}
-		}
-	} else {
-		err := p.calculateRefreshedObligation(info.Key)
+	for k, _ := range p.obligations {
+		err := p.calculateRefreshedObligation(k)
 		if err != nil {
-			p.logger.Printf("2 %s %s", info.Key.String(), err.Error())
-			status, _ := p.ignore[info.Key]
+			p.logger.Printf("1 %s %s", k.String(), err.Error())
+			status, _ := p.ignore[k]
 			status.Ignore = true
 		}
 	}
@@ -1059,7 +1055,7 @@ func (p *Program) borrowedAmountWadWithInterest(
 		return obligationBorrowAmount
 	case 1:
 		r := new(big.Float).Quo(reserveCumulativeBorrowRate, obligationCumulativeBorrowRate)
-		return new(big.Float).Mul(obligationCumulativeBorrowRate, r)
+		return new(big.Float).Mul(obligationBorrowAmount, r)
 	}
 	return nil
 }
