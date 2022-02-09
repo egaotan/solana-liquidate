@@ -3,12 +3,12 @@
     {
       "rpc": "https://api.mainnet-beta.solana.com",
       "ws": "wss://api.mainnet-beta.solana.com",
-      "usable": true
+      "usable": false
     },
     {
       "rpc": "https://solana-api.projectserum.com",
       "ws": "wss://solana-api.projectserum.com",
-      "usable": false
+      "usable": true
     }
   ],
   "tx_endpoints": [
@@ -47,5 +47,5 @@
   "listen": "0.0.0.0:8088",
   "usdc_account": "8KK7jEoWApu45V4u223BEet2Uzu1WWq7PnfGcG8fkEVY",
   "liquidate_threshold": 100,
-  "usdc": 120000
+  "usdc": 2000
 }

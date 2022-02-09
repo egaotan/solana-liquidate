@@ -25,6 +25,8 @@ type UpdateInfo struct {
 
 type Status struct {
 	Ignore bool
+	Backup bool
+	Id uint64
 }
 
 type Program struct {
@@ -240,6 +242,8 @@ func (p *Program) buildAccounts(accounts []*backend.Account) error {
 		err := p.buildAccount(account)
 		p.ignore[account.PubKey] = &Status{
 			Ignore: false,
+			Backup: false,
+			Id: 0,
 		}
 		if err != nil {
 			p.logger.Printf(err.Error())
@@ -300,7 +304,7 @@ func (p *Program) calculate(info *UpdateInfo) {
 		for k, _ := range p.obligations {
 			err := p.calculateRefreshedObligation(k)
 			if err != nil {
-				p.logger.Printf("%s", err.Error())
+				p.logger.Printf("1 %s %s", k.String(), err.Error())
 				status, _ := p.ignore[k]
 				status.Ignore = true
 			}
@@ -308,7 +312,7 @@ func (p *Program) calculate(info *UpdateInfo) {
 	} else {
 		err := p.calculateRefreshedObligation(info.Key)
 		if err != nil {
-			p.logger.Printf("%s", err.Error())
+			p.logger.Printf("2 %s %s", info.Key.String(), err.Error())
 			status, _ := p.ignore[info.Key]
 			status.Ignore = true
 		}
@@ -321,6 +325,12 @@ func (p *Program) calculateRefreshedObligation(pubkey solana.PublicKey) error {
 		return nil
 	}
 	newId := time.Now().UnixNano() / 1000
+	if ok && ig.Backup && uint64(newId) - ig.Id < 1000000 * 60 * 5 {
+		return nil
+	}
+	ig.Backup = false
+	ig.Id = uint64(newId)
+
 	cachedId, ok := p.cached[pubkey]
 	if ok && uint64(newId) - cachedId < uint64(100000) {
 		return fmt.Errorf("too much in 100 milliseconds")
@@ -465,6 +475,7 @@ func (p *Program) calculateRefreshedObligation(pubkey solana.PublicKey) error {
 			return fmt.Errorf("no token info, token: %s", reserve.ReserveLiquidity.Mint.String())
 		}
 		borrowAmountWithInterest := p.borrowedAmountWadWithInterest(
+			obligation.Key,
 			reserve.ReserveLiquidity.CumulativeBorrowRate.Value,
 			borrow.CumulativeBorrowRate.Value,
 			borrow.BorrowedAmount.Value,
@@ -512,7 +523,7 @@ func (p *Program) calculateRefreshedObligation(pubkey solana.PublicKey) error {
 	//
 	utilizationRatio :=
 		new(big.Float).Mul(
-			new(big.Float).Quo(borrowValue, depositValue),
+			new(big.Float).Quo(borrowValuno reserve for obligatione, depositValue),
 			new(big.Float).SetFloat64(100),
 		)
 	if utilizationRatio.Sign() <= 0 {
@@ -530,6 +541,17 @@ func (p *Program) calculateRefreshedObligation(pubkey solana.PublicKey) error {
 	p.logger.Printf("obligation: %s deposit value：%s, borrow value: %s, allowed borrow value: %s, unhealthy borrow value: %s",
 		obligation.Key.String(), depositValue.String(), borrowValue.String(), allowedBorrowValue.String(), unhealthyBorrowValue.String())
 	*/
+
+	checkedBorrow := new(big.Float).Mul(borrowValue, new(big.Float).SetFloat64(1.1))
+	if checkedBorrow.Cmp(unhealthyBorrowValue) <= 0 {
+		status, _ := p.ignore[obligation.Key]
+		status.Backup = true
+		return nil
+	}
+
+	p.logger.Printf("obligation %s, borrowed value: %s, unhealthy borrow value: %s",
+		obligation.Key.String(), borrowValue.String(), unhealthyBorrowValue.String(),
+	)
 
 	//
 	if borrowValue.Cmp(unhealthyBorrowValue) <= 0 {
@@ -1019,6 +1041,7 @@ func (p *Program) InstructionLiquidate(amount uint64,
 }
 
 func (p *Program) borrowedAmountWadWithInterest(
+	key solana.PublicKey,
 	reserveCumulativeBorrowRate *big.Float,
 	obligationCumulativeBorrowRate *big.Float,
 	obligationBorrowAmount *big.Float,
@@ -1026,7 +1049,7 @@ func (p *Program) borrowedAmountWadWithInterest(
 	c := reserveCumulativeBorrowRate.Cmp(obligationCumulativeBorrowRate)
 	switch c {
 	case -1:
-		p.logger.Printf("interest rate cannot be negative")
+		p.logger.Printf("interest rate cannot be negative, %s", key.String())
 		return obligationBorrowAmount
 	case 0:
 		return obligationBorrowAmount
