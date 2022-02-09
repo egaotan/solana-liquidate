@@ -531,6 +531,10 @@ func (p *Program) calculateRefreshedObligation(pubkey solana.PublicKey) error {
 	}
 	 */
 	//
+	p.logger.Printf("obligation %s, borrowed value: %s, unhealthy borrow value: %s",
+		obligation.Key.String(), borrowValue.String(), unhealthyBorrowValue.String(),
+	)
+
 	threshold := new(big.Float).SetUint64(p.threshold * 2)
 	if depositValue.Cmp(threshold) <= 0 || borrowValue.Cmp(threshold) <= 0 {
 		status, _ := p.ignore[obligation.Key]
@@ -542,7 +546,7 @@ func (p *Program) calculateRefreshedObligation(pubkey solana.PublicKey) error {
 		obligation.Key.String(), depositValue.String(), borrowValue.String(), allowedBorrowValue.String(), unhealthyBorrowValue.String())
 	*/
 
-	p.logger.Printf("obligation %s, borrowed value: %s, unhealthy borrow value: %s",
+	p.logger.Printf("====== obligation %s, borrowed value: %s, unhealthy borrow value: %s",
 		obligation.Key.String(), borrowValue.String(), unhealthyBorrowValue.String(),
 	)
 
