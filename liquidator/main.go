@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/solana-liquidate/config"
-	"github.com/solana-liquidate/liauidator/liquidate"
+	"github.com/solana-liquidate/liquidator/liquidate"
 	"github.com/solana-liquidate/utils"
 	"os"
 	"os/signal"
