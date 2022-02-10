@@ -27,6 +27,7 @@ type Status struct {
 	Ignore bool
 	Backup bool
 	Id uint64
+	Counter uint64
 }
 
 type Program struct {
@@ -245,6 +246,7 @@ func (p *Program) buildAccounts(accounts []*backend.Account) error {
 			Ignore: false,
 			Backup: false,
 			Id: 0,
+			Counter: 2,
 		}
 		if err != nil {
 			p.logger.Printf(err.Error())
@@ -312,7 +314,10 @@ func (p *Program) calculate(info *UpdateInfo) {
 		if err != nil {
 			p.logger.Printf("1 %s %s", k.String(), err.Error())
 			status, _ := p.ignore[k]
-			status.Ignore = true
+			if status.Counter >= 2 {
+				status.Counter = 0
+				status.Ignore = true
+			}
 		}
 	}
 }
