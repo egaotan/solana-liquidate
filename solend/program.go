@@ -312,9 +312,10 @@ func (p *Program) calculate(info *UpdateInfo) {
 	for k, _ := range p.obligations {
 		err := p.calculateRefreshedObligation(k)
 		if err != nil {
-			p.logger.Printf("1 %s %s", k.String(), err.Error())
+			//p.logger.Printf("1 %s %s", k.String(), err.Error())
 			status, _ := p.ignore[k]
 			if status.Counter >= 2 {
+				p.logger.Printf("1 %s %s", k.String(), err.Error())
 				status.Counter = 0
 				status.Ignore = true
 			}
