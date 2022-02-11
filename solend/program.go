@@ -268,15 +268,13 @@ func (p *Program) updateAccount() {
 	for {
 		select {
 		case updateAccount := <-p.updateAccountChan:
-			_, ok := p.obligations[updateAccount.PubKey]
-			if !ok {
-				continue
-			}
-			status, ok := p.ignore[updateAccount.PubKey]
-			if !ok {
+			_, ok1 := p.obligations[updateAccount.PubKey]
+			_, ok2 := p.reserves[updateAccount.PubKey]
+			if !ok1 && !ok2 {
 				continue
 			}
 			p.buildAccount(updateAccount)
+			status, _ := p.ignore[updateAccount.PubKey]
 			status.Ignore = false
 		case <-p.ctx.Done():
 			return
