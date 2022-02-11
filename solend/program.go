@@ -246,7 +246,7 @@ func (p *Program) buildAccounts(accounts []*backend.Account) error {
 			Ignore: false,
 			Backup: false,
 			Id: 0,
-			Counter: 2,
+			Counter: 1,
 		}
 		if err != nil {
 			p.logger.Printf(err.Error())
@@ -308,16 +308,16 @@ func (p *Program) Calculate() {
 func (p *Program) calculate(info *UpdateInfo) {
 	p.fireCounter = 0
 	for k, _ := range p.obligations {
+		status, _ := p.ignore[k]
 		err := p.calculateRefreshedObligation(k)
 		if err != nil {
 			//p.logger.Printf("1 %s %s", k.String(), err.Error())
-			status, _ := p.ignore[k]
-			if status.Counter >= 2 {
+			if status.Counter >= 1 {
 				p.logger.Printf("1 %s %s", k.String(), err.Error())
-				status.Counter = 0
 				status.Ignore = true
 			}
 		}
+		status.Counter = 0
 	}
 }
 
