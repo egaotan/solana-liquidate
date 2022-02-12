@@ -299,8 +299,6 @@ func (p *PriceLayout) unpack(data []byte) error {
 		}
 	}
 	//
-	if p.Aggregate.Status == 1 {
-		p.Price = p.Aggregate.Price
-	}
+	p.Price = p.Aggregate.Price
 	return nil
 }

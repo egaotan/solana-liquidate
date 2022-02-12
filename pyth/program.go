@@ -220,6 +220,9 @@ func (p *Program) updateAccount() {
 			if !ok {
 				continue
 			}
+			if price.Aggregate.Status == 0 {
+				p.logger.Printf("price is unusable, %s", updateAccount.PubKey.String())
+			}
 			sub, ok := p.updateSubs[updateAccount.PubKey]
 			if !ok {
 				continue
