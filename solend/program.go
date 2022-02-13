@@ -558,7 +558,13 @@ func (p *Program) calculateRefreshedObligation(pubkey solana.PublicKey) error {
 
 	//
 	if borrowValue.Cmp(unhealthyBorrowValue) <= 0 {
-		p.logger.Printf("obligation is healthy")
+		/*
+		x := new(big.Float).Quo(
+			new(big.Float).Sub(unhealthyBorrowValue, borrowValue),
+			borrowValue)
+		p.logger.Printf("obligation is healthy, (%s, %s, %s, %s)",
+			obligation.Key.String(), borrowValue.String(), unhealthyBorrowValue.String(), x.String())
+		*/
 		return nil
 	}
 	p.logger.Printf("obligation %s is underwater, borrowed value: %s, unhealthy borrow value: %s",
