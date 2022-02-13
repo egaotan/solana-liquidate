@@ -539,12 +539,14 @@ func (p *Program) calculateRefreshedObligation(pubkey solana.PublicKey) error {
 		return fmt.Errorf("too small deposit value or borrow value")
 	}
 
+	/*
 	x := new(big.Float).Quo(
 		new(big.Float).Sub(unhealthyBorrowValue, borrowValue),
 		borrowValue)
 	p.logger.Printf("obligation %s, borrowed value: %s, unhealthy borrow value: %s, x: %s, counter: %d",
 		obligation.Key.String(), borrowValue.String(), unhealthyBorrowValue.String(), x.String(), p.fireCounter,
 	)
+	*/
 	p.fireCounter ++
 
 	checkedBorrow := new(big.Float).Mul(borrowValue, new(big.Float).SetFloat64(1.1))
