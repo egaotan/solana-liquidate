@@ -557,24 +557,26 @@ func (p *Program) calculateRefreshedObligation(pubkey solana.PublicKey) error {
 	*/
 	p.fireCounter ++
 
-	checkedBorrow := new(big.Float).Mul(borrowValue, new(big.Float).SetFloat64(p.checkPoint))
-	if checkedBorrow.Cmp(unhealthyBorrowValue) <= 0 {
+	x := new(big.Float).Quo(
+		new(big.Float).Sub(unhealthyBorrowValue, borrowValue),
+		borrowValue)
+
+	if x.Cmp(new(big.Float).SetFloat64(0.1)) > 0 {
 		status, _ := p.ignore[obligation.Key]
 		status.Backup = true
 		return nil
 	}
 
 	//
-	if borrowValue.Cmp(unhealthyBorrowValue) <= 0 {
-		x := new(big.Float).Quo(
-			new(big.Float).Sub(unhealthyBorrowValue, borrowValue),
-			borrowValue)
-		if x.Cmp(new(big.Float).SetFloat64(0.03)) <= 0 {
-			p.logger.Printf("obligation is healthy, (%s, %s, %s, %s)",
-				obligation.Key.String(), borrowValue.String(), unhealthyBorrowValue.String(), x.String())
-		}
+	if x.Cmp(new(big.Float).SetFloat64(0.03)) <= 0 {
+		p.logger.Printf("obligation is healthy, (%s, %s, %s, %s)",
+			obligation.Key.String(), borrowValue.String(), unhealthyBorrowValue.String(), x.String())
+	}
+
+	if x.Cmp(new(big.Float).SetFloat64(0.005)) > 0 {
 		return nil
 	}
+
 	p.logger.Printf("obligation %s is underwater, borrowed value: %s, unhealthy borrow value: %s",
 		obligation.Key.String(), borrowValue.String(), unhealthyBorrowValue.String(),
 	)
