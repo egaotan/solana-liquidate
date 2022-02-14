@@ -205,6 +205,10 @@ func (backend *Backend) Commit(level int, id uint64, ins []solana.Instruction, s
 		return
 	}
 	trx.Sign(backend.getWallet)
+
+	backend.txLogger.Printf("%s;%d;%s", trx.Signatures[0].String(), id,
+		time.Unix(int64(id)/1000000, int64(id)%1000000*1000).Format("2006-01-02 15:04:05.000000"))
+
 	//
 	command := &TxCommand{
 		Id:       id,

@@ -16,6 +16,7 @@ type Backend struct {
 	ctx         context.Context
 	wg          sync.WaitGroup
 	logger      *log.Logger
+	txLogger        *log.Logger
 	rpcClient   *rpc.Client
 	wsClient    *ws.Client
 	accountSubs map[solana.PublicKey]*AccountSubscription
@@ -43,6 +44,7 @@ func NewBackend(ctx context.Context, rpcEndpoint string, wsEndpoint string, send
 	backend := &Backend{
 		ctx:         ctx,
 		logger:      utils.NewLog(utils.LogPath, utils.BackendLog),
+		txLogger:        utils.NewLog(utils.LogPath, utils.SentTxHash),
 		rpcClient:   rpcClient,
 		wsClient:    wsClients,
 		accountSubs: make(map[solana.PublicKey]*AccountSubscription, 0),

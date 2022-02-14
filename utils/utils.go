@@ -11,6 +11,7 @@ var (
 	TpuLog                = "tpu_executor"
 	BackendLog            = "backend"
 	Executor              = "executor"
+	SentTxHash                   = "sent_tx"
 	CachePath             = "./cache/"
 	ConfigPath            = "./config/"
 	TokensFile            = ConfigPath + "tokens.json"
