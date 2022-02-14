@@ -48,6 +48,8 @@ type Program struct {
 	cached map[solana.PublicKey]uint64
 	ignore map[solana.PublicKey]*Status
 	fireCounter uint64
+	checkPoint float64
+	needCheck bool
 }
 
 func NewProgram(id solana.PublicKey, ctx context.Context, env *env.Env, be *backend.Backend, flashloan bool, oracle *pyth.Program, usdcAmount uint64, threshold uint64) *Program {
@@ -68,6 +70,7 @@ func NewProgram(id solana.PublicKey, ctx context.Context, env *env.Env, be *back
 		updated:           make(chan *UpdateInfo, 1024),
 		cached: make(map[solana.PublicKey]uint64),
 		ignore: make(map[solana.PublicKey]*Status),
+		checkPoint: 1.1,
 	}
 	return p
 }
@@ -319,6 +322,9 @@ func (p *Program) calculate(info *UpdateInfo) {
 		}
 		status.Counter = 0
 	}
+	if p.fireCounter < 50 {
+		p.needCheck = true
+	}
 }
 
 func (p *Program) calculateRefreshedObligation(pubkey solana.PublicKey) error {
@@ -327,8 +333,10 @@ func (p *Program) calculateRefreshedObligation(pubkey solana.PublicKey) error {
 		return nil
 	}
 	newId := time.Now().UnixNano() / 1000
-	if ok && ig.Backup && uint64(newId) - ig.Id < 1000000 * 60 * 5 {
-		return nil
+	if p.needCheck == false {
+		if ok && ig.Backup && uint64(newId)-ig.Id < 1000000*60*5 {
+			return nil
+		}
 	}
 	ig.Backup = false
 	ig.Id = uint64(newId)
@@ -549,7 +557,7 @@ func (p *Program) calculateRefreshedObligation(pubkey solana.PublicKey) error {
 	*/
 	p.fireCounter ++
 
-	checkedBorrow := new(big.Float).Mul(borrowValue, new(big.Float).SetFloat64(1.1))
+	checkedBorrow := new(big.Float).Mul(borrowValue, new(big.Float).SetFloat64(p.checkPoint))
 	if checkedBorrow.Cmp(unhealthyBorrowValue) <= 0 {
 		status, _ := p.ignore[obligation.Key]
 		status.Backup = true
@@ -558,13 +566,13 @@ func (p *Program) calculateRefreshedObligation(pubkey solana.PublicKey) error {
 
 	//
 	if borrowValue.Cmp(unhealthyBorrowValue) <= 0 {
-		/*
 		x := new(big.Float).Quo(
 			new(big.Float).Sub(unhealthyBorrowValue, borrowValue),
 			borrowValue)
-		p.logger.Printf("obligation is healthy, (%s, %s, %s, %s)",
-			obligation.Key.String(), borrowValue.String(), unhealthyBorrowValue.String(), x.String())
-		*/
+		if x.Cmp(new(big.Float).SetFloat64(0.03)) <= 0 {
+			p.logger.Printf("obligation is healthy, (%s, %s, %s, %s)",
+				obligation.Key.String(), borrowValue.String(), unhealthyBorrowValue.String(), x.String())
+		}
 		return nil
 	}
 	p.logger.Printf("obligation %s is underwater, borrowed value: %s, unhealthy borrow value: %s",
