@@ -573,7 +573,7 @@ func (p *Program) calculateRefreshedObligation(pubkey solana.PublicKey) error {
 			obligation.Key.String(), borrowValue.String(), unhealthyBorrowValue.String(), x.String())
 	}
 
-	if x.Cmp(new(big.Float).SetFloat64(0.005)) > 0 {
+	if x.Cmp(new(big.Float).SetFloat64(0.003)) > 0 {
 		return nil
 	}
 
@@ -749,11 +749,13 @@ func (p *Program) liquidateObligation(obligation *KeyedObligation, selectDeposit
 		if ok {
 			continue
 		}
+		/*
 		in, err := p.InstructionRefreshReserve(reserve.Key, reserve.ReserveLiquidity.Oracle, reserve.ReserveLiquidity.SwitchBoardOracle)
 		if err != nil {
 			return err
 		}
 		ins = append(ins, in)
+		 */
 		reserves[reserveKey] = reserve
 	}
 	for _, borrow := range obligation.ObligationLiquidity {
@@ -767,11 +769,13 @@ func (p *Program) liquidateObligation(obligation *KeyedObligation, selectDeposit
 		if ok {
 			continue
 		}
+		/*
 		in, err := p.InstructionRefreshReserve(reserve.Key, reserve.ReserveLiquidity.Oracle, reserve.ReserveLiquidity.SwitchBoardOracle)
 		if err != nil {
 			return err
 		}
 		ins = append(ins, in)
+		 */
 		reserves[reserveKey] = reserve
 	}
 	// refresh obligation
