@@ -749,13 +749,11 @@ func (p *Program) liquidateObligation(obligation *KeyedObligation, selectDeposit
 		if ok {
 			continue
 		}
-		/*
 		in, err := p.InstructionRefreshReserve(reserve.Key, reserve.ReserveLiquidity.Oracle, reserve.ReserveLiquidity.SwitchBoardOracle)
 		if err != nil {
 			return err
 		}
 		ins = append(ins, in)
-		 */
 		reserves[reserveKey] = reserve
 	}
 	for _, borrow := range obligation.ObligationLiquidity {
@@ -769,13 +767,11 @@ func (p *Program) liquidateObligation(obligation *KeyedObligation, selectDeposit
 		if ok {
 			continue
 		}
-		/*
 		in, err := p.InstructionRefreshReserve(reserve.Key, reserve.ReserveLiquidity.Oracle, reserve.ReserveLiquidity.SwitchBoardOracle)
 		if err != nil {
 			return err
 		}
 		ins = append(ins, in)
-		 */
 		reserves[reserveKey] = reserve
 	}
 	// refresh obligation

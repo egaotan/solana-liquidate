@@ -127,6 +127,10 @@ func (proxy *Proxy) SendTransactions() {
 
 func (proxy *Proxy) SendTransaction(tx []byte, id uint64) {
 	proxy.logger.Printf("send transaction......")
+	if len(tx) > 1644 {
+		proxy.logger.Printf("too big")
+		return
+	}
 	for !atomic.CompareAndSwapInt32(&proxy.lock, 0, 1) {
 		continue
 	}
@@ -147,7 +151,7 @@ func (proxy *Proxy) SendTransaction(tx []byte, id uint64) {
 			proxy.logger.Printf("send (%d, %d)", n, len(tx))
 		}
 	}
-	for i := 0; i < 10000; i++ {
+	for i := 0; i < 100; i++ {
 		for _, conn := range tpuConnections {
 			//proxy.logger.Printf("send tx to %s", addr)
 			_, err := conn.Write(tx)
@@ -157,7 +161,7 @@ func (proxy *Proxy) SendTransaction(tx []byte, id uint64) {
 				//proxy.logger.Printf("send (%d, %d)", n, len(tx))
 			}
 		}
-		if i%100 == 99 {
+		if i%10 == 9 {
 			time.Sleep(time.Millisecond * 100)
 		}
 	}

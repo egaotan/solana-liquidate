@@ -209,6 +209,19 @@ func (backend *Backend) Commit(level int, id uint64, ins []solana.Instruction, s
 	backend.txLogger.Printf("%s;%d;%s", trx.Signatures[0].String(), id,
 		time.Unix(int64(id)/1000000, int64(id)%1000000*1000).Format("2006-01-02 15:04:05.000000"))
 
+	trxJson, _ := json.MarshalIndent(trx, "", "    ")
+	backend.txLogger.Printf("transaction: %s", trxJson)
+
+	txData, err := trx.MarshalBinary()
+	if err != nil {
+		backend.logger.Printf("trx.MarshalBinary err: %s", err.Error())
+		return
+	}
+	if len(txData) > 1644 {
+		backend.logger.Printf("transaction is too big")
+		return
+	}
+	
 	//
 	command := &TxCommand{
 		Id:       id,
@@ -218,10 +231,6 @@ func (backend *Backend) Commit(level int, id uint64, ins []solana.Instruction, s
 	}
 	if backend.sendTx == 2 || backend.sendTx == 3 {
 		backend.logger.Printf("send transaction to tpu")
-		txData, err := trx.MarshalBinary()
-		if err != nil {
-			backend.logger.Printf("trx.MarshalBinary err: %s", err.Error())
-		}
 		backend.tpuProxy.CommitTransaction(txData)
 	}
 	if backend.sendTx == 1 || backend.sendTx == 3 {
