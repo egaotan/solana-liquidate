@@ -26,7 +26,7 @@ type Backend struct {
 	txClients   []*rpc.Client
 	txChans     []chan *TxCommand
 	tpuProxy    *tpu.Proxy
-	clientBH    *rpc.Client
+	clientBH    []string
 	cachedBH    []solana.Hash
 	updateBH    chan uint64
 	lock        int32
@@ -35,7 +35,7 @@ type Backend struct {
 	wallets     []*Wallet
 }
 
-func NewBackend(ctx context.Context, rpcEndpoint string, wsEndpoint string, sendTx int, txEndpoints []string, tpuEndpoint string, bhEndpoint string) *Backend {
+func NewBackend(ctx context.Context, rpcEndpoint string, wsEndpoint string, sendTx int, txEndpoints []string, tpuEndpoint string, bhEndpoint []string) *Backend {
 	rpcClient := rpc.New(rpcEndpoint)
 	wsClients, err := ws.Connect(ctx, wsEndpoint)
 	if err != nil {
@@ -51,7 +51,7 @@ func NewBackend(ctx context.Context, rpcEndpoint string, wsEndpoint string, send
 		programSubs: make(map[solana.PublicKey]*ProgramSubscription, 0),
 		sendTx:      sendTx,
 		tpuProxy:    tpu.NewProxy(ctx, tpuEndpoint),
-		clientBH:    rpc.New(bhEndpoint),
+		clientBH:    bhEndpoint,
 		cachedBH:    make([]solana.Hash, 0, BHCachedSize),
 		updateBH:    make(chan uint64, 1024),
 		wallets:     make([]*Wallet, 0),
