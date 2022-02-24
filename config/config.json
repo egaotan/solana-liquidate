@@ -25,7 +25,7 @@
       "usable": true
     }
   ],
-  "blockhash_endpoint": "https://free.rpcpool.com",
+  "blockhash_endpoint": ["https://ssc-dao.genesysgo.net", "https://free.rpcpool.com", "https://solana-api.projectserum.com"],
   "tpu_endpoint": "https://free.rpcpool.com",
   "tx_endpoint_size": 1,
   "send_tx": 3,

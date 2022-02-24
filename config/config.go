@@ -12,7 +12,7 @@ type Config struct {
 	Endpoints         []*Node            `json:"endpoints"`
 	TxEndpoints       []*Node            `json:"tx_endpoints"`
 	TxEndpointSize    int                `json:"tx_endpoint_size"`
-	BlockHashEndpoint string             `json:"blockhash_endpoint"`
+	BlockHashEndpoint []string             `json:"blockhash_endpoint"`
 	TpuEndpoint       string             `json:"tpu_endpoint"`
 	SendTx            int                `json:"send_tx"`
 	NodeId            int                `json:"node_id"`
