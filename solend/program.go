@@ -24,9 +24,9 @@ type UpdateInfo struct {
 }
 
 type Status struct {
-	Ignore bool
-	Backup bool
-	Id uint64
+	Ignore  bool
+	Backup  bool
+	Id      uint64
 	Counter uint64
 }
 
@@ -37,19 +37,20 @@ type Program struct {
 	env               *env.Env
 	id                solana.PublicKey
 	flashloan         bool
+	noreturn          bool
 	usdcAmount        uint64
-	threshold uint64
+	threshold         uint64
 	oracle            *pyth.Program
 	lendingMarkets    map[solana.PublicKey]*KeyedLendingMarket
 	obligations       map[solana.PublicKey]*KeyedObligation
 	reserves          map[solana.PublicKey]*KeyedReserve
 	updateAccountChan chan *backend.Account
 	updated           chan *UpdateInfo
-	cached map[solana.PublicKey]uint64
-	ignore map[solana.PublicKey]*Status
-	fireCounter uint64
-	checkPoint float64
-	needCheck bool
+	cached            map[solana.PublicKey]uint64
+	ignore            map[solana.PublicKey]*Status
+	fireCounter       uint64
+	checkPoint        float64
+	needCheck         bool
 }
 
 func NewProgram(id solana.PublicKey, ctx context.Context, env *env.Env, be *backend.Backend, flashloan bool, oracle *pyth.Program, usdcAmount uint64, threshold uint64) *Program {
@@ -60,17 +61,18 @@ func NewProgram(id solana.PublicKey, ctx context.Context, env *env.Env, be *back
 		env:               env,
 		id:                id,
 		flashloan:         flashloan,
-		usdcAmount: usdcAmount,
-		threshold: threshold,
+		usdcAmount:        usdcAmount,
+		threshold:         threshold,
 		oracle:            oracle,
 		lendingMarkets:    make(map[solana.PublicKey]*KeyedLendingMarket),
 		obligations:       make(map[solana.PublicKey]*KeyedObligation),
 		reserves:          make(map[solana.PublicKey]*KeyedReserve),
 		updateAccountChan: make(chan *backend.Account, 1024),
 		updated:           make(chan *UpdateInfo, 1024),
-		cached: make(map[solana.PublicKey]uint64),
-		ignore: make(map[solana.PublicKey]*Status),
-		checkPoint: 1.1,
+		cached:            make(map[solana.PublicKey]uint64),
+		ignore:            make(map[solana.PublicKey]*Status),
+		checkPoint:        1.1,
+		noreturn:          true,
 	}
 	return p
 }
@@ -246,9 +248,9 @@ func (p *Program) buildAccounts(accounts []*backend.Account) error {
 	for _, account := range accounts {
 		err := p.buildAccount(account)
 		p.ignore[account.PubKey] = &Status{
-			Ignore: false,
-			Backup: false,
-			Id: 0,
+			Ignore:  false,
+			Backup:  false,
+			Id:      0,
 			Counter: 1,
 		}
 		if err != nil {
@@ -286,8 +288,7 @@ func (p *Program) updateAccount() {
 }
 
 func (p *Program) OnUpdate(price *pyth.KeyedPrice) error {
-	p.updated <- &UpdateInfo{
-	}
+	p.updated <- &UpdateInfo{}
 	return nil
 }
 
@@ -342,7 +343,7 @@ func (p *Program) calculateRefreshedObligation(pubkey solana.PublicKey) error {
 	ig.Id = uint64(newId)
 
 	cachedId, ok := p.cached[pubkey]
-	if ok && uint64(newId) - cachedId < uint64(100000) {
+	if ok && uint64(newId)-cachedId < uint64(100000) {
 		return fmt.Errorf("too much in 100 milliseconds")
 	}
 	obligation, ok := p.obligations[pubkey]
@@ -527,19 +528,19 @@ func (p *Program) calculateRefreshedObligation(pubkey solana.PublicKey) error {
 		}
 	}
 	/*
-	if depositValue.Sign() <= 0 || borrowValue.Sign() <= 0 {
-		return fmt.Errorf("value is invalid")
-	}
-	//
-	utilizationRatio :=
-		new(big.Float).Mul(
-			new(big.Float).Quo(borrowValuno reserve for obligatione, depositValue),
-			new(big.Float).SetFloat64(100),
-		)
-	if utilizationRatio.Sign() <= 0 {
-		utilizationRatio = new(big.Float).SetInt64(0)
-	}
-	 */
+		if depositValue.Sign() <= 0 || borrowValue.Sign() <= 0 {
+			return fmt.Errorf("value is invalid")
+		}
+		//
+		utilizationRatio :=
+			new(big.Float).Mul(
+				new(big.Float).Quo(borrowValuno reserve for obligatione, depositValue),
+				new(big.Float).SetFloat64(100),
+			)
+		if utilizationRatio.Sign() <= 0 {
+			utilizationRatio = new(big.Float).SetInt64(0)
+		}
+	*/
 	//
 
 	threshold := new(big.Float).SetUint64(p.threshold * 2)
@@ -548,14 +549,14 @@ func (p *Program) calculateRefreshedObligation(pubkey solana.PublicKey) error {
 	}
 
 	/*
-	x := new(big.Float).Quo(
-		new(big.Float).Sub(unhealthyBorrowValue, borrowValue),
-		borrowValue)
-	p.logger.Printf("obligation %s, borrowed value: %s, unhealthy borrow value: %s, x: %s, counter: %d",
-		obligation.Key.String(), borrowValue.String(), unhealthyBorrowValue.String(), x.String(), p.fireCounter,
-	)
+		x := new(big.Float).Quo(
+			new(big.Float).Sub(unhealthyBorrowValue, borrowValue),
+			borrowValue)
+		p.logger.Printf("obligation %s, borrowed value: %s, unhealthy borrow value: %s, x: %s, counter: %d",
+			obligation.Key.String(), borrowValue.String(), unhealthyBorrowValue.String(), x.String(), p.fireCounter,
+		)
 	*/
-	p.fireCounter ++
+	p.fireCounter++
 
 	x := new(big.Float).Quo(
 		new(big.Float).Sub(unhealthyBorrowValue, borrowValue),
@@ -843,6 +844,14 @@ func (p *Program) liquidateObligation(obligation *KeyedObligation, selectDeposit
 		if err != nil {
 			return err
 		}
+	} else if p.noreturn {
+		in, err = p.InstructionLiquidateNoReturn(p.usdcAmount, repayReserve.ReserveLiquidity.Supply, repay, repayReserve.Key,
+			lendingMarket.Key, lendingMarketAuthority, program.Token,
+			withdrawCollateral, withdraw, withdrawReserve.Key, withdrawReserve.ReserveCollateral.Supply, withdrawReserve.ReserveCollateral.Mint,
+			withdrawReserve.ReserveLiquidity.Supply, program.Solend, obligation.Key, owner)
+		if err != nil {
+			return err
+		}
 	} else {
 		in, err = p.InstructionLiquidate(p.usdcAmount, repayReserve.ReserveLiquidity.Supply, repay, repayReserve.Key,
 			lendingMarket.Key, lendingMarketAuthority, program.Token,
@@ -1052,6 +1061,43 @@ func (p *Program) InstructionLiquidate(amount uint64,
 			{PublicKey: swapDestination, IsSigner: false, IsWritable: true},
 			{PublicKey: swapPoolMint, IsSigner: false, IsWritable: true},
 			{PublicKey: swapFee, IsSigner: false, IsWritable: true},
+			{PublicKey: owner, IsSigner: true, IsWritable: false},
+			{PublicKey: program.SysClock, IsSigner: false, IsWritable: false},
+		},
+		IsData:      data,
+		IsProgramID: program.Liquidate,
+	}
+	return instruction, nil
+}
+
+func (p *Program) InstructionLiquidateNoReturn(amount uint64,
+	repaySupply solana.PublicKey, repay solana.PublicKey, repayReserve solana.PublicKey,
+	lendingMarket solana.PublicKey, lendingMarketAuthority solana.PublicKey, tokenProgram solana.PublicKey,
+	withdrawCollateral solana.PublicKey, withdraw solana.PublicKey,
+	withdrawReserve solana.PublicKey, withdrawCollateralSupply solana.PublicKey,
+	withdrawCollateralMint solana.PublicKey, withdrawLiquiditySupply solana.PublicKey,
+	solendProgram solana.PublicKey, obligation solana.PublicKey,
+	owner solana.PublicKey) (solana.Instruction, error) {
+	data := make([]byte, 9)
+	// very dangerous here
+	data[0] = 2
+	binary.LittleEndian.PutUint64(data[1:], amount)
+	instruction := &program.Instruction{
+		IsAccounts: []*solana.AccountMeta{
+			{PublicKey: repay, IsSigner: false, IsWritable: true},
+			{PublicKey: repaySupply, IsSigner: false, IsWritable: true},
+			{PublicKey: tokenProgram, IsSigner: false, IsWritable: false},
+			{PublicKey: withdrawCollateral, IsSigner: false, IsWritable: true},
+			{PublicKey: withdraw, IsSigner: false, IsWritable: true},
+			{PublicKey: repayReserve, IsSigner: false, IsWritable: true},
+			{PublicKey: withdrawReserve, IsSigner: false, IsWritable: true},
+			{PublicKey: withdrawCollateralSupply, IsSigner: false, IsWritable: true},
+			{PublicKey: withdrawCollateralMint, IsSigner: false, IsWritable: true},
+			{PublicKey: withdrawLiquiditySupply, IsSigner: false, IsWritable: true},
+			{PublicKey: solendProgram, IsSigner: false, IsWritable: false},
+			{PublicKey: obligation, IsSigner: false, IsWritable: true},
+			{PublicKey: lendingMarket, IsSigner: false, IsWritable: false},
+			{PublicKey: lendingMarketAuthority, IsSigner: false, IsWritable: false},
 			{PublicKey: owner, IsSigner: true, IsWritable: false},
 			{PublicKey: program.SysClock, IsSigner: false, IsWritable: false},
 		},
