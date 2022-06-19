@@ -867,6 +867,23 @@ func (p *Program) liquidateObligation(obligation *KeyedObligation, selectDeposit
 	id := time.Now().UnixNano() / 1000
 	p.backend.Commit(0, uint64(id), ins, false, nil)
 	p.cached[obligation.Key] = uint64(id)
+	// if no return, we need to swap
+	//
+	{
+		ins1 := make([]solana.Instruction, 0)
+		in, err = p.InstructionLiquidateNoReturnBalance(p.usdcAmount, repayReserve.ReserveLiquidity.Supply, repay, repayReserve.Key,
+			lendingMarket.Key, lendingMarketAuthority, program.Token,
+			withdrawCollateral, withdraw, withdrawReserve.Key, withdrawReserve.ReserveCollateral.Supply, withdrawReserve.ReserveCollateral.Mint,
+			withdrawReserve.ReserveLiquidity.Supply, program.Solend, obligation.Key, program.Swap, swap.Key, swapAuthority,
+			swapSrc, swapDst, swap.PoolToken, swap.PoolFeeAccount, owner)
+		if err != nil {
+			return err
+		}
+		ins1 = append(ins1, in)
+		//
+		id = time.Now().UnixNano() / 1000
+		p.backend.Commit(0, uint64(id), ins1, false, nil)
+	}
 	return nil
 }
 
@@ -1098,6 +1115,52 @@ func (p *Program) InstructionLiquidateNoReturn(amount uint64,
 			{PublicKey: obligation, IsSigner: false, IsWritable: true},
 			{PublicKey: lendingMarket, IsSigner: false, IsWritable: false},
 			{PublicKey: lendingMarketAuthority, IsSigner: false, IsWritable: false},
+			{PublicKey: owner, IsSigner: true, IsWritable: false},
+			{PublicKey: program.SysClock, IsSigner: false, IsWritable: false},
+		},
+		IsData:      data,
+		IsProgramID: program.Liquidate,
+	}
+	return instruction, nil
+}
+
+func (p *Program) InstructionLiquidateNoReturnBalance(amount uint64,
+	repaySupply solana.PublicKey, repay solana.PublicKey, repayReserve solana.PublicKey,
+	lendingMarket solana.PublicKey, lendingMarketAuthority solana.PublicKey, tokenProgram solana.PublicKey,
+	withdrawCollateral solana.PublicKey, withdraw solana.PublicKey,
+	withdrawReserve solana.PublicKey, withdrawCollateralSupply solana.PublicKey,
+	withdrawCollateralMint solana.PublicKey, withdrawLiquiditySupply solana.PublicKey,
+	solendProgram solana.PublicKey, obligation solana.PublicKey,
+	swapProgram solana.PublicKey, swapMarket solana.PublicKey, swapMarketAuthority solana.PublicKey,
+	swapSource solana.PublicKey, swapDestination solana.PublicKey,
+	swapPoolMint solana.PublicKey, swapFee solana.PublicKey, owner solana.PublicKey) (solana.Instruction, error) {
+	data := make([]byte, 9)
+	// very dangerous here
+	data[0] = 3
+	binary.LittleEndian.PutUint64(data[1:], amount)
+	instruction := &program.Instruction{
+		IsAccounts: []*solana.AccountMeta{
+			{PublicKey: repay, IsSigner: false, IsWritable: true},
+			{PublicKey: repaySupply, IsSigner: false, IsWritable: true},
+			{PublicKey: tokenProgram, IsSigner: false, IsWritable: false},
+			{PublicKey: withdrawCollateral, IsSigner: false, IsWritable: true},
+			{PublicKey: withdraw, IsSigner: false, IsWritable: true},
+			{PublicKey: repayReserve, IsSigner: false, IsWritable: true},
+			{PublicKey: withdrawReserve, IsSigner: false, IsWritable: true},
+			{PublicKey: withdrawCollateralSupply, IsSigner: false, IsWritable: true},
+			{PublicKey: withdrawCollateralMint, IsSigner: false, IsWritable: true},
+			{PublicKey: withdrawLiquiditySupply, IsSigner: false, IsWritable: true},
+			{PublicKey: solendProgram, IsSigner: false, IsWritable: false},
+			{PublicKey: obligation, IsSigner: false, IsWritable: true},
+			{PublicKey: lendingMarket, IsSigner: false, IsWritable: false},
+			{PublicKey: lendingMarketAuthority, IsSigner: false, IsWritable: false},
+			{PublicKey: swapProgram, IsSigner: false, IsWritable: false},
+			{PublicKey: swapMarket, IsSigner: false, IsWritable: true},
+			{PublicKey: swapMarketAuthority, IsSigner: false, IsWritable: false},
+			{PublicKey: swapSource, IsSigner: false, IsWritable: true},
+			{PublicKey: swapDestination, IsSigner: false, IsWritable: true},
+			{PublicKey: swapPoolMint, IsSigner: false, IsWritable: true},
+			{PublicKey: swapFee, IsSigner: false, IsWritable: true},
 			{PublicKey: owner, IsSigner: true, IsWritable: false},
 			{PublicKey: program.SysClock, IsSigner: false, IsWritable: false},
 		},
